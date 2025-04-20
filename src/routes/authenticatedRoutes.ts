@@ -21,6 +21,8 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             required: ['symbol'],
             properties: {
                 symbol: { type: 'string', description: 'Trading pair symbol (e.g., BTC/USDC)' },
+                timeframe: { type: 'string', description: 'Timeframe for OHLCV data (e.g., 1h, 1d, 1M)', nullable: true, default: '1h' },
+                limit: { type: 'integer', description: 'Number of candles to fetch', nullable: true, default: 100, minimum: 1 },
             },
         },
     };
@@ -31,18 +33,15 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             return reply.code(401).send({ error: "Unauthorized", message: "Missing user context" });
         }
         
-        const { symbol } = request.body as { symbol: string };
+        // Use defaults from schema if not provided
+        const { symbol, timeframe = '1h', limit = 100 } = request.body as { 
+            symbol: string; 
+            timeframe?: string; 
+            limit?: number 
+        };
         const exchange = binanceService.getExchangeInstance(); // Use decorated service
 
         try {
-            const timeframe = "1h";
-            const limit = 100;
-
-            /*update for futures spport also
-            if (!binanceService.isValidUsdcPair(symbol)) {
-                request.log.warn(`Fetching OHLCV for symbol '${symbol}' not in pre-loaded USDC list.`);
-            }*/
-
             const ohlcvData = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
 
             if (!ohlcvData || ohlcvData.length === 0) {
@@ -55,7 +54,7 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             return reply.send(ohlcvData);
 
         } catch (error: any) {
-            request.log.error(`Error fetching OHLCV: ${error.message}`);
+            request.log.error(`Error fetching OHLCV for ${symbol} (${timeframe}, limit ${limit}): ${error.message}`);
             // Error handling (copied from index.ts)
             if (error instanceof ccxt.BadSymbol) {
                 return reply.code(400).send({ error: 'Bad Request', message: `Invalid symbol: ${error.message}` });
@@ -66,7 +65,7 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             if (error instanceof ccxt.RateLimitExceeded) {
                 return reply.code(429).send({ error: 'Too Many Requests', message: `Rate limit exceeded: ${error.message}` });
             }
-            return reply.code(500).send({ error: 'Internal Server Error', message: 'Failed to fetch OHLCV data' });
+            return reply.code(500).send({ error: 'Internal Server Error', message: `Failed to fetch OHLCV data for ${symbol} (${timeframe})` });
         }
     });
 
