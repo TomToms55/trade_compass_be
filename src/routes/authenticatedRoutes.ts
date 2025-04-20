@@ -69,8 +69,8 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
     });
 
-    // POST /fetchBalance
-    fastify.post("/fetchBalance", async (request, reply) => {
+    // GET /fetchBalance
+    fastify.get("/fetchBalance", async (request, reply) => {
         if (!request.user) {
             return reply.code(401).send({ error: "Unauthorized", message: "User context missing." });
         }
@@ -139,7 +139,7 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             type: 'object',
             required: ['symbol', 'side', 'amount'],
             properties: {
-                symbol: { type: 'string', description: 'Base symbol (e.g., BTC, ETH)' },
+                symbol: { type: 'string', description: 'Full market symbol (e.g., BTC/USDC for spot, BTC/USDC:USDC for futures)' },
                 side: { type: 'string', enum: ['buy', 'sell'] },
                 amount: { type: 'number', exclusiveMinimum: 0, description: 'For BUY: cost in USDC. For SELL: quantity in base asset.' },
             },
@@ -153,13 +153,17 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
 
         const userId = request.user.user_id;
-        const { symbol: baseSymbol, side, amount } = request.body as { symbol: string; side: 'buy' | 'sell'; amount: number };
+        // Now 'symbol' is the full market symbol from the user
+        const { symbol, side, amount } = request.body as { 
+            symbol: string; 
+            side: 'buy' | 'sell'; 
+            amount: number 
+        };
         
-        request.log.info(`User ${userId} requested to ${side} ${amount} of ${baseSymbol}`);
+        request.log.info(`User ${userId} requested to ${side} ${amount} on market ${symbol}`);
 
         // Declare variables outside try block for catch block access
-        let targetMarket: string | null = null; 
-        let marketType: 'spot' | 'futures' | null = null;
+        let marketType: 'spot' | 'futures' | null = null; // Initialize to null
 
         try {
             // 1. Get user credentials
@@ -169,60 +173,50 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
                 return reply.code(403).send({ error: "Forbidden", message: "API credentials not configured or user not found." });
             }
 
-            // 2. Construct potential market symbols
-            const baseSymbolUpper = baseSymbol.toUpperCase();
-            const spotMarketSymbol = `${baseSymbolUpper}/USDC`;
-            const futuresMarketSymbol = `${baseSymbolUpper}/USDC:USDC`;
-
-            // 3. Determine target market and type based on availability and side
-            const hasFuturesMarket = binanceService.isValidUsdcFuturesPair(futuresMarketSymbol);
-            const hasSpotMarket = binanceService.isValidUsdcSpotPair(spotMarketSymbol);
-
-            if (hasFuturesMarket) {
-                // Prefer futures if available for both buy and sell
-                targetMarket = futuresMarketSymbol;
+            // 2. Determine market type and validate the symbol
+            if (symbol.includes(':')) {
                 marketType = 'futures';
-                request.log.info(`User ${userId} trade target: Futures market (${targetMarket})`);
-            } else if (hasSpotMarket && side === 'buy') {
-                // Fallback to spot ONLY for BUY orders if futures not available
-                targetMarket = spotMarketSymbol;
-                marketType = 'spot';
-                request.log.info(`User ${userId} trade target: Spot market (${targetMarket}) - Buy only`);
-            } else {
-                // Error: Spot sell not allowed, or neither market available
-                let reason = `No supported market found for ${baseSymbolUpper}`;
-                if (hasSpotMarket && side === 'sell') {
-                    reason = `Selling on the spot market (${spotMarketSymbol}) is not supported via this endpoint.`;
+                if (!binanceService.isValidUsdcFuturesPair(symbol)) {
+                    const message = `Invalid or unsupported futures market symbol provided: ${symbol}`;
+                    request.log.warn(`Trade rejected for user ${userId}: ${message}`);
+                    return reply.code(400).send({ error: "Bad Request", message });
                 }
-                request.log.warn(`Trade rejected for user ${userId}: ${reason}`);
-                // Use 400 for invalid request based on rules, or 501 if feature is intentionally unimplemented
-                return reply.code(400).send({ error: "Trade Not Allowed", message: reason });
+                 request.log.info(`User ${userId} trade target: Futures market (${symbol})`);
+            } else {
+                marketType = 'spot';
+                 if (!binanceService.isValidUsdcSpotPair(symbol)) {
+                    const message = `Invalid or unsupported spot market symbol provided: ${symbol}`;
+                    request.log.warn(`Trade rejected for user ${userId}: ${message}`);
+                    return reply.code(400).send({ error: "Bad Request", message });
+                }
+                 // Spot sells might still be restricted depending on service logic, but the route allows attempting it.
+                 request.log.info(`User ${userId} trade target: Spot market (${symbol})`);
             }
 
-            // 4. Determine if using Testnet
+            // 3. Determine if using Testnet
             const useTestnet = process.env.USE_BINANCE_TESTNET === 'true';
 
-            // 5. Call the service method
+            // 4. Call the service method with the user-provided symbol and determined type
             const order = await binanceService.placeMarketOrder(
                 credentials.apiKey,
                 credentials.apiSecret,
                 useTestnet,
-                targetMarket, // Use the determined target market
+                symbol, // Use the validated user-provided symbol directly
                 side,
                 amount,
-                marketType    // Pass the determined market type
+                marketType // Pass the determined market type
             );
 
-            // 6. Send successful response with order details
-            request.log.info({ order: order }, `User ${userId} successfully placed ${side} order ${order.id} on ${marketType} market ${targetMarket}`);
+            // 5. Send successful response with order details
+            request.log.info({ order: order }, `User ${userId} successfully placed ${side} order ${order.id} on ${marketType} market ${symbol}`);
             return reply.send({ 
                 message: "Trade placed successfully", 
                 order: order // Send back the full order details from CCXT
             });
 
         } catch (error: any) {
-            // Now targetMarket and marketType are accessible here
-            request.log.error({ err: error }, `Error placing ${marketType || 'unknown type'} trade for user ${userId} (${side} ${amount} ${baseSymbol}) on market ${targetMarket || 'unknown'}`);
+            // Use the determined marketType and the original symbol in logs
+            request.log.error({ err: error }, `Error placing ${marketType || 'unknown type'} trade for user ${userId} (${side} ${amount} on market ${symbol})`);
 
             // Handle specific CCXT errors re-thrown by the service
             if (error instanceof ccxt.InsufficientFunds) {

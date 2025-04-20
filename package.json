@@ -9,7 +9,8 @@
     "dev": "nodemon --watch src -e ts --exec ts-node src/index.ts",
     "generate": "ts-node src/scripts/generateSuggestions.ts",
     "test": "vitest run",
-    "deploy": "bash deploy.sh"
+    "deploy": "bash deploy.sh",
+    "dev-deploy": "bash dev_deploy.sh"
   },
   "keywords": [],
   "author": "",
