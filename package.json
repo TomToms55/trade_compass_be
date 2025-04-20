@@ -8,7 +8,8 @@
     "start": "tsc && node dist/index.js",
     "dev": "nodemon --watch src -e ts --exec ts-node src/index.ts",
     "generate": "ts-node src/scripts/generateSuggestions.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "deploy": "./deploy.sh"
   },
   "keywords": [],
   "author": "",
