@@ -1,0 +1,40 @@
+{
+  "name": "trade-compass-be",
+  "version": "1.0.0",
+  "description": "Backend for Trade Compass - a trading assistant powered by AI predictions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && node dist/index.js",
+    "dev": "nodemon --watch src -e ts --exec ts-node src/index.ts",
+    "generate": "ts-node src/scripts/generateSuggestions.ts",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/uuid": "^10.0.0",
+    "axios": "^1.8.4",
+    "bcrypt": "^5.1.1",
+    "ccxt": "^4.4.75",
+    "dotenv": "^16.5.0",
+    "fastify": "^5.3.0",
+    "jsonwebtoken": "^9.0.2",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7",
+    "tmai-api": "^1.0.3",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.14.1",
+    "@types/supertest": "^6.0.3",
+    "nodemon": "^3.1.9",
+    "supertest": "^7.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}
