@@ -69,4 +69,63 @@ export class TradeRepository implements ITradeRepository {
     // Potential future methods:
     // async findByOrderId(orderId: string): Promise<Trade | null> { ... }
     // async findByUserId(userId: string, limit: number = 50): Promise<Trade[]> { ... }
+    
+    /**
+     * Finds open trades for a specific symbol and original side.
+     */
+    async findOpenTradesBySymbolAndSide(symbol: string, side: 'buy' | 'sell'): Promise<Trade[]> {
+        try {
+            const openTrades = await prisma.trade.findMany({
+                where: {
+                    symbol: symbol,
+                    side: side,
+                    tcState: 'OPEN',
+                    // Add any other necessary conditions, e.g., ensure `filled` > 0
+                    filled: {
+                        gt: 0 // Only consider trades that were actually filled
+                    }
+                },
+            });
+            return openTrades;
+        } catch (error) {
+            console.error(`Error finding open ${side} trades for symbol ${symbol}:`, error);
+            throw error; // Re-throw the error for handling upstream
+        }
+    }
+
+    /**
+     * Updates a trade record with closure details.
+     */
+    async updateTradeClosure(tradeId: number, closureData: { 
+        closeOrderId: string; 
+        closeTimestamp: Date; 
+        closePrice?: number | null; 
+        closeCost?: number | null; 
+        profit?: number | null; 
+        durationMs?: number | null; 
+    }): Promise<Trade> {
+        try {
+            const updatedTrade = await prisma.trade.update({
+                where: { tradeId: tradeId },
+                data: {
+                    tcState: 'COMPLETED',
+                    closeOrderId: closureData.closeOrderId,
+                    closeTimestamp: closureData.closeTimestamp,
+                    closePrice: closureData.closePrice, 
+                    closeCost: closureData.closeCost,
+                    profit: closureData.profit,
+                    durationMs: closureData.durationMs,
+                },
+            });
+            console.log(`Trade ${tradeId} marked as COMPLETED via repository.`);
+            return updatedTrade;
+        } catch (error) {
+             console.error(`Error updating trade ${tradeId} for closure:`, error);
+            // Consider specific error handling, e.g., if trade not found (P2025)
+             if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+                throw new Error(`Trade with ID ${tradeId} not found for closure update.`);
+             } 
+            throw error; // Re-throw other errors
+        }
+    }
 } 

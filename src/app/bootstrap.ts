@@ -13,6 +13,7 @@ import { UserRepository } from '@/infra/db/repositories/UserRepository';
 import { TradeRepository } from '@/infra/db/repositories/TradeRepository';
 import { UserService } from '@/modules/services/userService';
 import { AuthService } from "@/modules/auth/services/auth.service"; // Import AuthService
+import { TradeClosureService } from "@/modules/trading/services/trade-closure.service"; // Import TradeClosureService
 
 // Import interfaces for type safety
 import type { 
@@ -25,7 +26,8 @@ import type {
     IUserRepository, 
     ITradeRepository, 
     IUserService,
-    IAuthService // Import IAuthService
+    IAuthService, // Import IAuthService
+    ITradeClosureService // Import ITradeClosureService
     // ISuggestionService // No longer returned from here
 } from '@/core/interfaces';
 
@@ -40,6 +42,7 @@ export interface AppServices {
     userRepository: IUserRepository;
     tradeRepository: ITradeRepository;
     userService: IUserService;
+    tradeClosureService: ITradeClosureService; // Add TradeClosureService
     // suggestionService: ISuggestionService; // Removed
 }
 
@@ -54,6 +57,9 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
 
     // Example: Registering AuthService
     container.register<IAuthService>("IAuthService", { useClass: AuthService });
+
+    // Register TradeClosureService
+    container.register<ITradeClosureService>("ITradeClosureService", { useClass: TradeClosureService });
 
     // Register Repositories
     container.register("IUserRepository", UserRepository);
@@ -130,5 +136,6 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
         userRepository: container.resolve("IUserRepository"), 
         tradeRepository: container.resolve("ITradeRepository"),
         userService: container.resolve("IUserService"),
+        tradeClosureService: container.resolve("ITradeClosureService"), // Resolve TradeClosureService
     };
 } 

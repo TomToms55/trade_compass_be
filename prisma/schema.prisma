@@ -47,6 +47,15 @@ model Trade {
   marketType              String    @map("market_type")
   rawOrder                String?   @map("raw_order") // Store JSON as String
 
+  // Trade Closure fields
+  tcState                 String    @default("OPEN") @map("tc_state") // "OPEN", "COMPLETED"
+  closeOrderId            String?   @unique @map("close_order_id")
+  closeTimestamp          DateTime? @map("close_timestamp")
+  closePrice              Float?    @map("close_price") // Average price of the closing order
+  closeCost               Float?    @map("close_cost") // Total cost/proceeds of the closing order
+  profit                  Float?    @map("profit")
+  durationMs              Int?      @map("duration_ms") // Trade duration in milliseconds
+
   // Define the relation to User
   user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

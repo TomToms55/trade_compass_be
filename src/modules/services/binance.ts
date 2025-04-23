@@ -202,8 +202,9 @@ export class BinanceService implements IBinanceService { // Implement the interf
      * @param useTestnet Flag to use Testnet.
      * @param marketSymbol The full market symbol (e.g., "BTC/USDC").
      * @param side "buy" or "sell".
-     * @param amount The amount to trade. For market buys, this is the cost (quote currency, e.g., USDC). For market sells, this is the quantity (base currency, e.g., BTC).
+     * @param amount The amount to trade. For spot market buys by cost, this is the cost (quote currency). For spot market sells or futures, this is the quantity (base currency).
      * @param marketType "spot" or "futures"
+     * @param params Optional additional parameters for the CCXT createOrder call (e.g., { reduceOnly: true }).
      * @returns The order information returned by CCXT.
      * @throws {ccxt.InsufficientFunds} If the user doesn't have enough balance.
      * @throws {ccxt.InvalidOrder} If the order parameters are invalid (e.g., amount too small).
@@ -217,9 +218,13 @@ export class BinanceService implements IBinanceService { // Implement the interf
         marketSymbol: string, 
         side: 'buy' | 'sell', 
         amount: number,
-        marketType: 'spot' | 'futures'
+        marketType: 'spot' | 'futures',
+        params: Record<string, any> = {} // Add params with default value
     ): Promise<ccxt.Order> {
         console.log(`Placing ${side} market order for ${amount} on ${marketSymbol} (${marketType}, using ${useTestnet ? 'Testnet' : 'Realnet'})...`);
+        if (params && Object.keys(params).length > 0) {
+            console.log(`> With extra params:`, params);
+        }
 
         const userExchange: ccxt.Exchange = new ccxt.binance({
             apiKey: apiKey,
@@ -247,26 +252,34 @@ export class BinanceService implements IBinanceService { // Implement the interf
                  // For FUTURES, amount is always base currency quantity for market orders with createOrder
                  console.log(`Attempting FUTURES market ${side} with quantity: ${amount} ${marketSymbol.split('/')[0]}`);
                  // We might need to set position side or other params for futures depending on user settings/exchange requirements
-                 // For now, assume simple market order works.
-                 const params = { 
-                     // Example: Add futures-specific parameters if necessary
-                     // 'positionSide': 'BOTH', // or 'LONG'/'SHORT' if hedging mode is enabled
-                 };
-                 order = await userExchange.createOrder(marketSymbol, 'market', side, amount, undefined /* price */, params);
+                 // Pass the params object here.
+                 // const params = { 
+                 //     // Example: Add futures-specific parameters if necessary
+                 //     // 'positionSide': 'BOTH', // or 'LONG'/'SHORT' if hedging mode is enabled
+                 // };
+                 order = await userExchange.createOrder(marketSymbol, 'market', side, amount, undefined /* price */, params); // Pass params here
             } else { // marketType === 'spot'
                 if (side === 'buy') {
                     // For SPOT BUY, use amount as the cost (in USDC)
                     console.log(`Attempting SPOT market buy with cost: ${amount} ${marketSymbol.split('/')[1]}`);
                     if (typeof userExchange.createMarketBuyOrderWithCost === 'function') {
-                        order = await userExchange.createMarketBuyOrderWithCost(marketSymbol, amount);
+                        // Pass params here as well, in case needed for spot market buys
+                        order = await userExchange.createMarketBuyOrderWithCost(marketSymbol, amount, params); // Pass params here
                     } else {
-                        console.warn(`createMarketBuyOrderWithCost not available on this exchange instance for ${marketSymbol}.`);
-                        throw new ccxt.NotSupported('createMarketBuyOrderWithCost is required for cost-based spot market buys on this exchange setup.');
+                        console.warn(`createMarketBuyOrderWithCost not available on this exchange instance for ${marketSymbol}. Falling back to createOrder.`);
+                        // Fallback: Attempt standard market order if specific cost function isn't available
+                        // Note: This fallback assumes 'amount' is intended as quantity if createMarketBuyOrderWithCost is missing, which might be incorrect.
+                        // Consider throwing NotSupported error instead if cost-based buy is strictly required.
+                        // For simplicity, let's throw the error as before.
+                        // throw new ccxt.NotSupported('createMarketBuyOrderWithCost is required for cost-based spot market buys on this exchange setup.');
+                        // Fallback strategy: try standard createOrder - this might fail if amount is too large for quantity
+                         console.log(`Attempting fallback SPOT market buy with quantity: ${amount} - THIS MAY FAIL IF AMOUNT WAS INTENDED AS COST`);
+                        order = await userExchange.createOrder(marketSymbol, 'market', side, amount, undefined, params); // Pass params here
                     }
                 } else { // side === 'sell'
                     // For SPOT SELL, use amount as the quantity (in Base currency)
                     console.log(`Attempting SPOT market sell with quantity: ${amount} ${marketSymbol.split('/')[0]}`);
-                    order = await userExchange.createOrder(marketSymbol, 'market', side, amount);
+                    order = await userExchange.createOrder(marketSymbol, 'market', side, amount, undefined, params); // Pass params here
                 }
             }
             

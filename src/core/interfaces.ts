@@ -28,7 +28,8 @@ export interface IBinanceService {
     marketSymbol: string,
     side: 'buy' | 'sell',
     amount: number,
-    marketType: 'spot' | 'futures'
+    marketType: 'spot' | 'futures',
+    params?: Record<string, any>
   ): Promise<Order>;
 }
 
@@ -140,6 +141,16 @@ export interface ITradeRepository {
     add(tradeData: TradeDataInput): Promise<Trade>; 
     // findByOrderId(orderId: string): Promise<Trade | null>; // Example future method
     // findByUserId(userId: string, limit?: number): Promise<Trade[]>; // Example future method
+    // Add methods for finding open trades and updating closure
+    findOpenTradesBySymbolAndSide(symbol: string, side: 'buy' | 'sell'): Promise<Trade[]>;
+    updateTradeClosure(tradeId: number, closureData: { 
+        closeOrderId: string; 
+        closeTimestamp: Date; 
+        closePrice?: number | null; 
+        closeCost?: number | null; 
+        profit?: number | null; 
+        durationMs?: number | null; 
+    }): Promise<Trade>;
 }
 
 // Optional: Interface for the Prisma Client itself, if needed for direct injection (less common)
@@ -171,3 +182,16 @@ export interface IUserService {
 }
 
 // ... existing service interfaces (IStorageService etc.) ... 
+
+// Interface for the new Trade Closure Service
+export interface ITradeClosureService {
+    /**
+     * Processes an incoming trading signal to find and close 
+     * any existing open trades in the opposite direction for the given symbol.
+     * 
+     * @param signalSide The side of the incoming signal ('buy' or 'sell').
+     * @param symbol The market symbol (e.g., 'BTC/USDC').
+     * @param signal The raw signal data (optional, for logging/context).
+     */
+    processSignal(signalSide: 'buy' | 'sell', symbol: string, signal?: TokenTradingSignal): Promise<void>;
+} 

@@ -127,6 +127,3 @@ export default async function authRoutes(fastify: FastifyInstance, options: Fast
     }
   });
 }
-
-// Add reflection capability for tsyringe if not using babel/swc plugins
-//import 'reflect-metadata'; 

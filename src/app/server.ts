@@ -24,6 +24,13 @@ import { bootstrapApp, AppServices } from './bootstrap';
 // Import the new service class
 import { SuggestionService } from '@/modules/suggestions/services/suggestion.service';
 
+// Import needed types and ccxt
+import type { Trade } from '@prisma/client';
+import type { Order as CcxtOrder } from 'ccxt'; // Alias CcxtOrder
+import * as ccxt from 'ccxt';
+import { container } from "tsyringe"; // Import tsyringe container
+import type { FastifyBaseLogger } from 'fastify';
+
 // Main function to build the Fastify app
 export async function build(): Promise<FastifyInstance> {
     // Add the ZodTypeProvider generic
@@ -35,9 +42,16 @@ export async function build(): Promise<FastifyInstance> {
     fastify.setValidatorCompiler(validatorCompiler);
     fastify.setSerializerCompiler(serializerCompiler);
 
+    // === Register Logger with DI Container ===
+    // Must happen AFTER fastify is created but BEFORE services needing the logger are resolved/used.
+    container.registerInstance<FastifyBaseLogger>("Logger", fastify.log);
+    fastify.log.info("Fastify logger registered with DI container.");
+    // ========================================
+
     // --- Bootstrap Core Services ---
     let services: AppServices;
     try {
+        // Bootstrap now resolves services, including TradeClosureService which depends on Logger
         services = await bootstrapApp();
     } catch (initError) {
         // Log error using console initially, as Fastify logger might not be ready
@@ -117,6 +131,7 @@ export async function build(): Promise<FastifyInstance> {
     fastify.decorate('userRepository', services.userRepository);
     fastify.decorate('tradeRepository', services.tradeRepository);
     fastify.decorate('userService', services.userService);
+    fastify.decorate('tradeClosureService', services.tradeClosureService); // Decorate the new service
     // Optionally decorate others if directly needed by plugins/hooks added here
     // fastify.decorate('suggestionGenerator', services.suggestionGenerator);
     // fastify.decorate('infiniteGamesClient', services.infiniteGamesClient);
@@ -142,14 +157,21 @@ export async function build(): Promise<FastifyInstance> {
 
     await services.signalGenerator.start();
 
-    services.signalGenerator.on('buy', (symbol: string, signal: TokenTradingSignal) => {
+    // --- Signal Event Listeners --- 
+    services.signalGenerator.on('buy', async (symbol: string, signal: TokenTradingSignal) => {
         fastify.log.info(`***** RECEIVED BUY SIGNAL for ${symbol} *****`, signal);
-        // TODO: Implement buy logic (e.g., call services.binanceService.placeMarketOrder)
+        // TODO: Implement actual buy logic if enabled/needed
+        
+        // Call the TradeClosureService to handle potential closures
+        await services.tradeClosureService.processSignal('buy', symbol, signal);
     });
 
-    services.signalGenerator.on('sell', (symbol: string, signal: TokenTradingSignal) => {
+    services.signalGenerator.on('sell', async (symbol: string, signal: TokenTradingSignal) => {
         fastify.log.info(`***** RECEIVED SELL SIGNAL for ${symbol} *****`, signal);
-        // TODO: Implement sell logic (e.g., call services.binanceService.placeMarketOrder)
+        // TODO: Implement actual sell logic if enabled/needed
+
+        // Call the TradeClosureService to handle potential closures
+        await services.tradeClosureService.processSignal('sell', symbol, signal);
     });
 
     services.signalGenerator.on('error', (error: Error) => {
