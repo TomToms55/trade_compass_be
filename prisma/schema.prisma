@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../src/generated/prisma" // Remove custom output path
+}
+
+datasource db {
+  provider = "sqlite"
+  // Update the URL based on the location used in database.ts
+  // Old path: path.resolve(__dirname, '../../data/database.db')
+  // Assuming relative to project root now: "file:./data/database.db"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                      String    @id @map("id") // Keep as String to match UUID usage
+  apiKey                  String    @map("api_key")
+  apiSecret               String    @map("api_secret")
+  passwordHash            String    @map("password_hash")
+  automaticTradingEnabled Boolean   @default(false) @map("automatic_trading_enabled")
+
+  // Relation to Trades
+  trades                  Trade[]
+}
+
+model Trade {
+  tradeId                 Int       @id @default(autoincrement()) @map("trade_id")
+  userId                  String    @map("user_id")
+  orderId                 String    @unique @map("order_id")
+  timestamp               DateTime  @map("timestamp") // Use DateTime, Prisma handles conversion
+  symbol                  String    @map("symbol")
+  type                    String    @map("type")
+  side                    String    @map("side")
+  price                   Float?    @map("price") // Float corresponds to REAL, ? makes it optional
+  amount                  Float     @map("amount")
+  cost                    Float?    @map("cost")
+  filled                  Float?    @map("filled")
+  remaining               Float?    @map("remaining")
+  status                  String?   @map("status")
+  feeCost                 Float?    @map("fee_cost")
+  feeCurrency             String?   @map("fee_currency")
+  marketType              String    @map("market_type")
+  rawOrder                String?   @map("raw_order") // Store JSON as String
+
+  // Define the relation to User
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

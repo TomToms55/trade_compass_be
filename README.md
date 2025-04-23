@@ -1,4 +1,4 @@
-# 🧠 CryptoCompass Backend
+# 🧠 CryptoCompass Backend (INCOMPLETE DOCS)
 
 A minimalist backend for the CryptoCompass app — a sleek trading assistant powered by AI predictions and market sentiment.
 
