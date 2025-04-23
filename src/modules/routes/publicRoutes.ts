@@ -1,22 +1,16 @@
 import { FastifyInstance, FastifyPluginOptions, FastifyRequest, FastifyReply } from 'fastify';
 import { TradeSuggestion } from '@/core/domainTypes';
-import jwt from 'jsonwebtoken';
-
-// Import the interface for type safety (optional but good practice)
-import type { IUserService } from '@/core/interfaces'; 
-
-// We'll need access to storageService, so we'll pass it via options or use decorators later
-type StorageService = ReturnType<typeof import('@/modules/services/storage').default>;
+import { container } from 'tsyringe'; // Import container
+import { IStorageService } from '@/core/interfaces'; // Import needed interfaces
 
 export default async function publicRoutes(fastify: FastifyInstance, options: FastifyPluginOptions) {
 
-    // Dependency Injection check (or use decorators)
-    const storageService = fastify.storageService; // Assuming decorator is used
-    // Retrieve the UserService instance decorated onto Fastify
-    const userService = fastify.userService as IUserService; // Use the interface type
-    
-    if (!storageService || !userService) { // Add userService to the check
-        throw new Error('Required services not decorated on Fastify instance');
+    // Resolve dependencies from the container
+    const storageService = container.resolve<IStorageService>('IStorageService');
+
+    // Dependency check (optional)
+    if (!storageService) { 
+        throw new Error('Storage service not resolved from container');
     }
 
     // Default route
@@ -64,77 +58,9 @@ export default async function publicRoutes(fastify: FastifyInstance, options: Fa
         }
     });
 
-    // --- Authentication Routes ---
-
-    // Define schema for /register request body
-    const registerSchema = {
-        body: {
-            type: 'object',
-            required: ['apiKey', 'apiSecret', 'password'],
-            properties: {
-                apiKey: { type: 'string' },
-                apiSecret: { type: 'string' },
-                password: { type: 'string', minLength: 8 },
-            },
-        },
-    };
-
-    // POST /register
-    fastify.post('/register', { schema: registerSchema }, async (request, reply) => {
-        try {
-            // Type assertion based on schema, not userService module
-            const { apiKey, apiSecret, password } = request.body as { apiKey: string, apiSecret: string, password: string }; 
-            // Call the method on the userService INSTANCE
-            const result = await userService.registerUser({ apiKey, apiSecret, password });
-
-            if (result.success) {
-                reply.code(201).send({ message: 'User registered successfully', userId: result.userId });
-            } else {
-                reply.code(400).send({ error: 'Registration Failed', message: result.error || 'Could not register user.' });
-            }
-        } catch (error) {
-            request.log.error('Registration endpoint error:', error);
-            reply.code(500).send({ error: 'Internal Server Error', message: 'An unexpected error occurred during registration.' });
-        }
-    });
-
-    // Define schema for /login request body
-    const loginSchema = {
-        body: {
-            type: 'object',
-            required: ['userId', 'password'],
-            properties: {
-                userId: { type: 'string' }, 
-                password: { type: 'string' },
-            },
-        },
-    };
-
-    // POST /login
-    fastify.post('/login', { schema: loginSchema }, async (request, reply) => {
-        try {
-            const { userId, password } = request.body as { userId: string; password: string };
-            // Call the method on the userService INSTANCE
-            const isValid = await userService.verifyUserCredentials(userId, password);
-
-            if (!isValid) {
-                return reply.code(401).send({ error: 'Unauthorized', message: 'Invalid user ID or password.' });
-            }
-
-            const jwtSecret = process.env.JWT_SECRET;
-            if (!jwtSecret) {
-                request.log.error('JWT_SECRET is not configured.');
-                return reply.code(500).send({ error: 'Internal Server Error', message: 'Server configuration error.' });
-            }
-            
-            const payload = { user_id: userId };
-            const token = jwt.sign(payload, jwtSecret, { expiresIn: '1h' });
-
-            reply.send({ message: 'Login successful', token: token });
-
-        } catch (error) {
-            request.log.error('Login endpoint error:', error);
-            reply.code(500).send({ error: 'Internal Server Error', message: 'An unexpected error occurred during login.' });
-        }
-    });
+    // --- Authentication Routes REMOVED --- 
+    // (These are now handled in src/modules/auth/routes/auth.routes.ts)
+    
+    // Removed /register route
+    // Removed /login route
 } 

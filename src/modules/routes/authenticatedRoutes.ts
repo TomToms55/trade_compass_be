@@ -1,69 +1,145 @@
 import { FastifyInstance, FastifyPluginOptions } from 'fastify';
 import { authenticate } from '@/middleware/auth';
 // Import repository interfaces
-import { IUserRepository, ITradeRepository, TradeDataInput } from '@/core/interfaces'; 
-// Still need UserService for updateUserSettings
-import { UserService } from '@/modules/services/userService'; 
+import { IUserRepository, ITradeRepository, TradeDataInput, IBinanceService, IUserService } from '@/core/interfaces'; 
+// Import the container for dependency resolution
+import { container } from 'tsyringe';
 import ccxt, { Exchange, Order } from 'ccxt';
+import { z } from 'zod'; // Import Zod
+// Import the payload type if not already
+import { JwtPayload } from '@/middleware/auth';
+
+// --- Common Schemas ---
+const ErrorResponseSchema = z.object({
+  error: z.string().describe('Error category/type'),
+  message: z.string().describe('Detailed error message'),
+}).describe('Standard error response');
+
+const UnauthorizedResponseSchema = z.object({
+  error: z.literal('Unauthorized'),
+  message: z.string()
+}).describe('Authentication is required or failed');
+
+// --- OHLCV Schemas ---
+const FetchOhlcvBodySchema = z.object({
+  symbol: z.string().describe('Trading pair symbol (e.g., BTC/USDC)'),
+  timeframe: z.string().optional().default('1h').describe('Timeframe for OHLCV data (e.g., 1h, 1d, 1M)'),
+  limit: z.number().int().min(1).optional().default(100).describe('Number of candles to fetch'),
+}).describe('Request body for fetching OHLCV data');
+type FetchOhlcvBody = z.infer<typeof FetchOhlcvBodySchema>; // Keep inferred type
+
+const OhlcvDataSchema = z.array(
+  z.tuple([
+    z.number().describe('Timestamp (milliseconds)'), // Timestamp (ms)
+    z.number().describe('Open price'),          // Open
+    z.number().describe('High price'),          // High
+    z.number().describe('Low price'),           // Low
+    z.number().describe('Close price'),         // Close
+    z.number().describe('Volume')           // Volume
+  ])
+).describe('Array of OHLCV candles (Timestamp, Open, High, Low, Close, Volume)');
+
+// --- Balance Schemas ---
+const BalanceResponseSchema = z.object({
+    message: z.string(),
+    usdcBalance: z.object({
+        spot: z.number().optional().describe('Available USDC balance in Spot account'), // Allow optional for flexibility
+        futures: z.number().optional().describe('Available USDC balance in Futures account') // Allow optional for flexibility
+    }).describe('USDC balances for Spot and Futures')
+}).describe('Successful balance fetch response');
+
+// --- Trade Schemas ---
+const PlaceTradeBodySchema = z.object({
+  symbol: z.string().describe('Full market symbol (e.g., BTC/USDC for spot, BTC/USDC:USDC for futures)'),
+  side: z.enum(['buy', 'sell']).describe('Order side'),
+  amount: z.number().positive().describe('For BUY: cost in USDC. For SELL: quantity in base asset.'),
+}).describe('Request body for placing a market trade');
+type PlaceTradeBody = z.infer<typeof PlaceTradeBodySchema>; // Keep inferred type
+
+// Define a basic Zod schema for the ccxt Order object
+// Note: This is simplified. A full schema would be very complex.
+const CcxtOrderSchema = z.any().describe('CCXT Order object structure (represented as any)');
+
+const PlaceTradeSuccessResponseSchema = z.object({
+    message: z.string(),
+    order: CcxtOrderSchema
+}).describe('Successful trade placement response');
+
+// --- User Settings Schemas ---
+const UpdateUserSettingsBodySchema = z.object({
+    automaticTradingEnabled: z.boolean().describe('Enable or disable automatic trading strategies based on signals.')
+}).describe('Request body for updating user settings');
+type UpdateUserSettingsBody = z.infer<typeof UpdateUserSettingsBodySchema>; // Keep inferred type
+
+// Define a basic User schema (adjust based on your actual User model)
+const UserSchema = z.object({
+    id: z.string(),
+    automaticTradingEnabled: z.boolean(),
+    // Add other user fields that might be returned
+}).describe('User object structure');
+
+const UpdateUserSettingsSuccessResponseSchema = z.object({
+    message: z.string(),
+    user: UserSchema
+}).describe('Successful user settings update response');
+
 
 export default async function authenticatedRoutes(fastify: FastifyInstance, options: FastifyPluginOptions) {
 
     // Apply authentication middleware to all routes registered in this plugin
     fastify.addHook('onRequest', authenticate);
 
-    // Dependencies will be decorated onto fastify
-    const binanceService = fastify.binanceService; // Assuming IBinanceService
-    const userRepository = fastify.userRepository as IUserRepository; // Assuming IUserRepository
-    const tradeRepository = fastify.tradeRepository as ITradeRepository; // Assuming ITradeRepository
-    const userService = fastify.userService as UserService; // Assuming UserService class instance
+    // Resolve dependencies from the container
+    const binanceService = container.resolve<IBinanceService>('IBinanceService');
+    const userRepository = container.resolve<IUserRepository>('IUserRepository');
+    const tradeRepository = container.resolve<ITradeRepository>('ITradeRepository');
+    const userService = container.resolve<IUserService>('IUserService');
+    
+    // Define security requirement for all routes in this plugin
+    const securityRequirement = [{ apiKey: [] }];
 
-    // Basic check for decorated dependencies
-    if (!binanceService || !userRepository || !tradeRepository || !userService) {
-        throw new Error('Required services or repositories not decorated on Fastify instance');
-    }
-
-    // Define schema for /fetchOHLCV request body
-    const fetchOhlcvSchema = {
-        body: {
-            type: 'object',
-            required: ['symbol'],
-            properties: {
-                symbol: { type: 'string', description: 'Trading pair symbol (e.g., BTC/USDC)' },
-                timeframe: { type: 'string', description: 'Timeframe for OHLCV data (e.g., 1h, 1d, 1M)', nullable: true, default: '1h' },
-                limit: { type: 'integer', description: 'Number of candles to fetch', nullable: true, default: 100, minimum: 1 },
-            },
-        },
-    };
-
-    // POST /fetchOHLCV update for futures support also
-    fastify.post("/fetchOHLCV", { schema: fetchOhlcvSchema }, async (request, reply) => {
-        if (!request.user) {
-            return reply.code(401).send({ error: "Unauthorized", message: "Missing user context" });
+    // POST /fetchOHLCV
+    fastify.post<{ Body: FetchOhlcvBody }>("/fetchOHLCV", {
+         schema: {
+             description: 'Fetch historical OHLCV (candlestick) data for a given market symbol.',
+             tags: ['trading'],
+             summary: 'Fetch OHLCV Data',
+             security: securityRequirement,
+             body: FetchOhlcvBodySchema,
+             response: {
+                 200: OhlcvDataSchema,
+                 400: ErrorResponseSchema, // Bad Request (e.g., invalid symbol)
+                 401: UnauthorizedResponseSchema,
+                 404: ErrorResponseSchema, // Not Found (no data)
+                 429: ErrorResponseSchema, // Rate Limit
+                 500: ErrorResponseSchema, // Internal Server Error
+                 503: ErrorResponseSchema  // Service Unavailable (Binance)
+             }
+         } 
+        }, 
+        async (request, reply) => {
+        // Handler logic remains the same, but relies on Zod validation now
+        if (!request.auth) { // Keep auth check
+            // Reply automatically handled by schema if validation fails, 
+            // but explicit check needed for middleware logic
+            return reply.code(401).send({ error: "Unauthorized", message: "Missing authentication context" }); 
         }
-        
-        // Use defaults from schema if not provided
-        const { symbol, timeframe = '1h', limit = 100 } = request.body as { 
-            symbol: string; 
-            timeframe?: string; 
-            limit?: number 
-        };
-        const exchange = binanceService.getExchangeInstance(); // Use decorated service
+        // Request body is now correctly typed
+        const { symbol, timeframe, limit } = request.body;
+        const exchange = binanceService.getExchangeInstance();
 
         try {
             const ohlcvData = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
-
             if (!ohlcvData || ohlcvData.length === 0) {
                 return reply.code(404).send({ 
                     error: "Not Found",
                     message: `No OHLCV data found for symbol ${symbol} with timeframe ${timeframe}`,
                 });
             }
-            
+            // Fastify automatically validates the response against OhlcvDataSchema
             return reply.send(ohlcvData);
-
-        } catch (error: any) {
+        } catch (error: any) { // Keep existing error handling logic
             request.log.error(`Error fetching OHLCV for ${symbol} (${timeframe}, limit ${limit}): ${error.message}`);
-            // Error handling (copied from index.ts)
             if (error instanceof ccxt.BadSymbol) {
                 return reply.code(400).send({ error: 'Bad Request', message: `Invalid symbol: ${error.message}` });
             }
@@ -78,45 +154,47 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
     });
 
     // GET /fetchBalance
-    fastify.get("/fetchBalance", async (request, reply) => {
-        if (!request.user) {
-            return reply.code(401).send({ error: "Unauthorized", message: "User context missing." });
+    fastify.get("/fetchBalance", {
+        schema: {
+            description: 'Fetch the current USDC balance for both Spot and Futures accounts associated with the user\'s API keys.',
+            tags: ['user'],
+            summary: 'Fetch User Balance',
+            security: securityRequirement,
+            response: {
+                200: BalanceResponseSchema,
+                401: UnauthorizedResponseSchema,
+                403: ErrorResponseSchema, // Forbidden (no credentials / invalid key)
+                429: ErrorResponseSchema, // Rate Limit
+                500: ErrorResponseSchema, // Internal Server Error
+                502: ErrorResponseSchema, // Bad Gateway (Binance exchange error)
+                503: ErrorResponseSchema  // Service Unavailable (Binance network)
+            }
         }
-
-        const userId = request.user.user_id;
+    }, async (request, reply) => {
+        // Handler logic remains largely the same
+        if (!request.auth) {
+             return reply.code(401).send({ error: "Unauthorized", message: "Authentication context missing." });
+        }
+        const userId = request.auth.user_id;
         request.log.info(`User ${userId} requesting balance.`);
 
         try {
-            // Use repository to get credentials
             const credentials = await userRepository.findCredentialsById(userId);
             if (!credentials) {
                 request.log.error(`API credentials not found for user ${userId}.`);
                 return reply.code(403).send({ error: "Forbidden", message: "API credentials not configured or user not found." });
             }
-
-            // 2. Determine if using Testnet
             const useTestnet = process.env.USE_BINANCE_TESTNET === 'true';
-
-            // 3. Call the service method
             const balances = await binanceService.fetchUserUsdcBalance(
-                credentials.apiKey,
-                credentials.apiSecret,
-                useTestnet
+                credentials.apiKey, credentials.apiSecret, useTestnet
             );
-
-            // 4. Send successful response with both balances
+            // Response validated by Fastify/Zod
             return reply.send({ 
                 message: "Balance fetched successfully", 
-                usdcBalance: {
-                    spot: balances.spot,
-                    futures: balances.futures
-                } 
+                usdcBalance: { spot: balances.spot, futures: balances.futures } 
             });
-
-        } catch (error: any) {
+        } catch (error: any) { // Keep existing error handling
             request.log.error(`Error in /fetchBalance route for user ${userId}: ${error.message}`);
-            
-            // Handle specific CCXT errors re-thrown by the service
             if (error instanceof ccxt.AuthenticationError) {
                  return reply.code(403).send({ error: 'Authentication Error', message: 'Invalid Binance API key or secret provided.' });
             }
@@ -126,12 +204,9 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             if (error instanceof ccxt.RateLimitExceeded) {
                  return reply.code(429).send({ error: 'Too Many Requests', message: `Rate limit exceeded: ${error.message}` });
             }
-            // Handle other specific ccxt.ExchangeError if needed
-            if (error instanceof ccxt.ExchangeError) { // Catch-all for other Binance errors
+            if (error instanceof ccxt.ExchangeError) {
                  return reply.code(502).send({ error: 'Bad Gateway', message: `Binance exchange error: ${error.message}` });
             }
-
-            // Handle the generic error thrown by the service or other unexpected errors
             return reply.code(500).send({ 
                 error: "Internal Server Error", 
                 message: error.message || "Failed to fetch balance due to an unexpected error." 
@@ -139,48 +214,43 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
     });
 
-    // --- Place Trade --- 
-
-    // Define schema for /placeTrade request body
-    const placeTradeSchema = {
-        body: {
-            type: 'object',
-            required: ['symbol', 'side', 'amount'],
-            properties: {
-                symbol: { type: 'string', description: 'Full market symbol (e.g., BTC/USDC for spot, BTC/USDC:USDC for futures)' },
-                side: { type: 'string', enum: ['buy', 'sell'] },
-                amount: { type: 'number', exclusiveMinimum: 0, description: 'For BUY: cost in USDC. For SELL: quantity in base asset.' },
-            },
-        },
-    };
-
     // POST /placeTrade 
-    fastify.post("/placeTrade", { schema: placeTradeSchema }, async (request, reply) => {
-        if (!request.user) {
-            return reply.code(401).send({ error: "Unauthorized", message: "User context missing." });
+    fastify.post<{ Body: PlaceTradeBody }>("/placeTrade", { 
+        schema: {
+            description: 'Place a market order (buy or sell) on either the Spot or Futures market.',
+            tags: ['trading'],
+            summary: 'Place Market Order',
+            security: securityRequirement,
+            body: PlaceTradeBodySchema,
+            response: {
+                200: PlaceTradeSuccessResponseSchema,
+                400: ErrorResponseSchema, // Bad Request (invalid symbol, insufficient funds, invalid order)
+                401: UnauthorizedResponseSchema,
+                403: ErrorResponseSchema, // Forbidden (no credentials / invalid key)
+                429: ErrorResponseSchema, // Rate Limit
+                500: ErrorResponseSchema, // Internal Server Error
+                501: ErrorResponseSchema, // Not Implemented (e.g., feature not supported by exchange)
+                502: ErrorResponseSchema, // Bad Gateway (Binance exchange error)
+                503: ErrorResponseSchema  // Service Unavailable (Binance network)
+            }
+        } 
+    }, async (request, reply) => {
+        // Handler logic remains largely the same
+        if (!request.auth) {
+             return reply.code(401).send({ error: "Unauthorized", message: "Authentication context missing." });
         }
-
-        const userId = request.user.user_id;
-        // Now 'symbol' is the full market symbol from the user
-        const { symbol, side, amount } = request.body as { 
-            symbol: string; 
-            side: 'buy' | 'sell'; 
-            amount: number 
-        };
-        
+        const userId = request.auth.user_id;
+        // Body is now correctly typed
+        const { symbol, side, amount } = request.body;
         request.log.info(`User ${userId} requested to ${side} ${amount} on market ${symbol}`);
-
-        // Declare variables outside try block for catch block access
-        let marketType: 'spot' | 'futures' | null = null; // Initialize to null
+        let marketType: 'spot' | 'futures' | null = null;
 
         try {
-            // Use repository to get credentials
             const credentials = await userRepository.findCredentialsById(userId);
             if (!credentials) {
-                 return reply.code(403).send({ error: "Forbidden", message: "API credentials not configured or user not found." });
+                return reply.code(403).send({ error: "Forbidden", message: "API credentials not configured or user not found." });
             }
 
-            // 2. Determine market type and validate the symbol
             if (symbol.includes(':')) {
                 marketType = 'futures';
                 if (!binanceService.isValidUsdcFuturesPair(symbol)) {
@@ -196,47 +266,30 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
                     request.log.warn(`Trade rejected for user ${userId}: ${message}`);
                     return reply.code(400).send({ error: "Bad Request", message });
                 }
-                 // Spot sells might still be restricted depending on service logic, but the route allows attempting it.
                  request.log.info(`User ${userId} trade target: Spot market (${symbol})`);
             }
 
-            // 3. Determine if using Testnet
             const useTestnet = process.env.USE_BINANCE_TESTNET === 'true';
-
-            // 4. Call the service method with the user-provided symbol and determined type
             const order: Order = await binanceService.placeMarketOrder(
-                credentials.apiKey,
-                credentials.apiSecret,
-                useTestnet,
-                symbol, // Use the validated user-provided symbol directly
-                side,
-                amount,
-                marketType // Pass the determined market type
+                credentials.apiKey, credentials.apiSecret, useTestnet, symbol, side, amount, marketType
             );
 
-            // 5. Store the successful trade in the database
-            //    Ensure marketType is not null here. The logic above should guarantee it.
             if (marketType) { 
                 const tradeData: TradeDataInput = { userId, order, marketType };
                 await tradeRepository.add(tradeData); 
                 request.log.info(`Trade details for order ${order.id} saved to database for user ${userId}.`);
             } else {
-                // This case should theoretically not happen if validation is correct
                 request.log.error(`Market type was null after placing order ${order.id} for user ${userId}. Trade not saved to DB.`);
             }
 
-            // 6. Send successful response with order details
             request.log.info({ order: order }, `User ${userId} successfully placed ${side} order ${order.id} on ${marketType} market ${symbol}`);
+            // Response validated by Zod
             return reply.send({ 
                 message: "Trade placed successfully", 
-                order: order // Send back the full order details from CCXT
+                order: order 
             });
-
-        } catch (error: any) {
-            // Use the determined marketType and the original symbol in logs
+        } catch (error: any) { // Keep existing error handling
             request.log.error({ err: error }, `Error placing ${marketType || 'unknown type'} trade for user ${userId} (${side} ${amount} on market ${symbol})`);
-
-            // Handle specific CCXT errors re-thrown by the service
             if (error instanceof ccxt.InsufficientFunds) {
                  return reply.code(400).send({ error: 'Insufficient Funds', message: error.message });
             }
@@ -258,11 +311,9 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             if (error instanceof ccxt.RateLimitExceeded) {
                  return reply.code(429).send({ error: 'Too Many Requests', message: `Rate limit exceeded: ${error.message}` });
             }
-            if (error instanceof ccxt.ExchangeError) { // Catch-all for other Binance errors
+            if (error instanceof ccxt.ExchangeError) {
                  return reply.code(502).send({ error: 'Bad Gateway', message: `Binance exchange error: ${error.message}` });
             }
-
-            // Handle generic errors or ones wrapped by the service
             return reply.code(500).send({ 
                 error: "Internal Server Error", 
                 message: error.message || "Failed to place trade due to an unexpected error." 
@@ -270,53 +321,47 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
     });
 
-    // --- User Settings --- 
-
-    // Define schema for /user/settings request body
-    const updateUserSettingsSchema = {
-        body: {
-            type: 'object',
-            required: ['automaticTradingEnabled'], // Only this setting is supported for now
-            properties: {
-                automaticTradingEnabled: { type: 'boolean', description: 'Enable or disable automatic trading strategies.' },
-                // Add other settings here in the future
-            },
-             additionalProperties: false // Disallow properties not defined in the schema
-        },
-    };
-
     // PATCH /user/settings
-    fastify.patch("/user/settings", { schema: updateUserSettingsSchema }, async (request, reply) => {
-        if (!request.user) {
-            return reply.code(401).send({ error: "Unauthorized", message: "User context missing." });
+    fastify.patch<{ Body: UpdateUserSettingsBody }>("/user/settings", { 
+        schema: {
+            description: 'Update user-specific settings. Currently only supports enabling/disabling automatic trading.',
+            tags: ['user'],
+            summary: 'Update User Settings',
+            security: securityRequirement,
+            body: UpdateUserSettingsBodySchema,
+            response: {
+                200: UpdateUserSettingsSuccessResponseSchema,
+                401: UnauthorizedResponseSchema,
+                404: ErrorResponseSchema, // User not found
+                500: ErrorResponseSchema // Internal Server Error
+            }
+        } 
+    }, async (request, reply) => {
+        // Handler logic remains largely the same
+        if (!request.auth) {
+            return reply.code(401).send({ error: "Unauthorized", message: "Authentication context missing." });
         }
-
-        const userId = request.user.user_id;
-        const settingsToUpdate = request.body as { automaticTradingEnabled: boolean }; // Cast based on schema
+        const authPayload = request.auth as JwtPayload;
+        const userId = authPayload.user_id;
+        // Body is now correctly typed
+        const settingsToUpdate = request.body;
 
         request.log.info({ settings: settingsToUpdate }, `User ${userId} requesting to update settings.`);
 
         try {
-            // Use the UserService instance
-            const result = await userService.updateUserSettings(userId, settingsToUpdate);
+            const updatedUser = await userService.updateUserSettings(userId, {
+                automaticTradingEnabled: settingsToUpdate.automaticTradingEnabled
+            });
 
-            if (result.success) {
+            if (updatedUser) {
                 request.log.info(`Successfully updated settings for user ${userId}.`);
-                // Optionally fetch and return the updated user settings
-                return reply.send({ message: "User settings updated successfully." });
+                 // Response validated by Zod
+                 return reply.send({ message: "User settings updated successfully.", user: updatedUser });
             } else {
-                request.log.warn(`Failed to update settings for user ${userId}: ${result.error}`);
-                // Determine appropriate status code based on the error message
-                if (result.error?.includes('User not found')) {
-                     return reply.code(404).send({ error: "Not Found", message: result.error });
-                }
-                 if (result.error?.includes('Invalid setting value')) {
-                     return reply.code(400).send({ error: "Bad Request", message: result.error });
-                }
-                // Generic internal server error for other failures
-                return reply.code(500).send({ error: "Internal Server Error", message: result.error || "Failed to update user settings." });
+                request.log.warn(`Failed to update settings for user ${userId}. User might not exist or repo error.`);
+                return reply.code(404).send({ error: "Not Found", message: "User not found or settings update failed." }); 
             }
-        } catch (error: any) {
+        } catch (error: any) { // Keep existing error handling
             request.log.error({ err: error }, `Unexpected error updating settings for user ${userId}`);
             return reply.code(500).send({ 
                 error: "Internal Server Error", 

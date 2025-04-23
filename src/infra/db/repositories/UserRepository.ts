@@ -1,12 +1,15 @@
 import { PrismaClient, User, Prisma } from '@prisma/client';
+import { injectable } from 'tsyringe'; // Import injectable
 import {
   IUserRepository,
   UserDataInput,
   UserSettingsUpdateInput,
   UserCredentials,
+  UserCreateInput // Import the new type
 } from '@/core/interfaces'; // Adjust path if necessary
 import prisma from '@/infra/db/prisma.client'; // Import the singleton instance
 
+@injectable() // Add injectable decorator
 export class UserRepository implements IUserRepository {
   private readonly client: PrismaClient;
 
@@ -57,6 +60,42 @@ export class UserRepository implements IUserRepository {
       console.error(`Error finding credentials for user ID ${userId}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Creates a new user record in the database.
+   * Assumes input data is validated and ID is provided.
+   */
+  async create(userData: UserCreateInput): Promise<User> {
+      try {
+          // Directly use Prisma's create method
+          const newUser = await this.client.user.create({
+              data: {
+                  id: userData.id,
+                  apiKey: userData.apiKey,
+                  apiSecret: userData.apiSecret,
+                  passwordHash: userData.passwordHash,
+                  // Include default if not optional or handle optionality
+                  automaticTradingEnabled: userData.automaticTradingEnabled ?? false, 
+                  // Add any other fields required by the schema
+              },
+          });
+          return newUser;
+      } catch (error) {
+          // Log the error appropriately
+          console.error(`Error creating user with ID ${userData.id}:`, error);
+          // Re-throw a more specific error or handle as needed
+          // Check for unique constraint violation (e.g., duplicate ID or API key if unique)
+          if (error instanceof Prisma.PrismaClientKnownRequestError) {
+               // Example: Unique constraint failed (code P2002)
+               if (error.code === 'P2002') {
+                   // Could check error.meta.target to see which field failed
+                   console.error(`Unique constraint violation creating user ${userData.id}.`);
+                   throw new Error(`User creation failed due to unique constraint.`); 
+               }
+          }
+          throw new Error(`Failed to create user ${userData.id}`);
+      }
   }
 
   /**

@@ -84,7 +84,18 @@ export interface UserDataInput {
   automaticTradingEnabled?: boolean;
 }
 
-// Interface for user settings updates
+// Define a more specific type for user creation data
+export interface UserCreateInput {
+    id: string; // ID is required for creation (generated beforehand)
+    apiKey: string;
+    apiSecret: string;
+    passwordHash: string;
+    automaticTradingEnabled?: boolean; // Optional, assuming a default exists
+    // Add any other non-optional fields required by your Prisma schema
+}
+
+// Interface for updating user settings
+// Ensure keys match Prisma schema fields intended for update
 export interface UserSettingsUpdateInput {
     automaticTradingEnabled?: boolean;
     apiKey?: string;
@@ -103,8 +114,13 @@ export interface IUserRepository {
     findById(userId: string): Promise<User | null>; 
     // Renamed from getUserApiCredentials
     findCredentialsById(userId: string): Promise<UserCredentials | null>; 
-    // Renamed from addOrUpdateUserDb
+    
+    // Method for creating a new user
+    create(userData: UserCreateInput): Promise<User>; 
+    
+    // Renamed from addOrUpdateUserDb - Consider removing if 'create' and 'update' are preferred
     addOrUpdate(userData: UserDataInput): Promise<User>; 
+    
     // Renamed from updateUserSettingsDb
     updateSettings(userId: string, settings: UserSettingsUpdateInput): Promise<User | null>; 
     // Renamed from deleteUserDb
@@ -131,20 +147,27 @@ export interface ITradeRepository {
 
 // == Service Interfaces (from refactored services) ==
 
-// Interface for user registration data (needed by IUserService)
+// Interface for user registration data (needed by IAuthService)
 export interface UserRegistrationData {
     apiKey: string;
     apiSecret: string;
     password: string;
 }
 
+// Add the new IAuthService interface
+export interface IAuthService {
+    registerUser(userData: UserRegistrationData): Promise<{ success: boolean, userId?: string }>;
+    verifyUserCredentials(userId: string, passwordAttempt: string): Promise<boolean>;
+    // Removed issueAuthToken as JWT signing is handled in the route
+    // Potentially add other auth-related methods later (e.g., refreshToken, verifyToken)
+}
+
 // Matches the public methods of the UserService class
 export interface IUserService {
-    registerUser(data: UserRegistrationData): Promise<{ success: boolean; userId?: string; error?: string }>;
-    findUserById(userId: string): Promise<User | null>;
-    verifyUserCredentials(userId: string, passwordAttempt: string): Promise<boolean>;
-    deleteUserForTest(userId: string): Promise<void>; // Returns void
-    updateUserSettings(userId: string, settings: UserSettingsUpdateInput): Promise<{ success: boolean; error?: string }>;
+    // Keep user-specific methods here
+    // Methods related to registration/login are now in IAuthService
+    updateUserSettings(userId: string, settings: Partial<{ apiKey: string, apiSecret: string, automaticTradingEnabled: boolean }>): Promise<User | null>;
+    getUserSettings(userId: string): Promise<{ apiKey: string; apiSecret: string } | null>;
 }
 
 // ... existing service interfaces (IStorageService etc.) ... 

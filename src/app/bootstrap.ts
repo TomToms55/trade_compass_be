@@ -1,3 +1,6 @@
+//import "reflect-metadata"; // Must be imported first for tsyringe
+import { container } from "tsyringe";
+
 import binanceServiceInstance, { BinanceService } from '@/modules/services/binance'; // Import the instance and potentially the class
 import createStorageService from '@/modules/services/storage';
 import { createTokenMetricsClient } from '@/infra/external/tokenMetrics';
@@ -9,6 +12,7 @@ import { PrismaClient } from '@prisma/client';
 import { UserRepository } from '@/infra/db/repositories/UserRepository';
 import { TradeRepository } from '@/infra/db/repositories/TradeRepository';
 import { UserService } from '@/modules/services/userService';
+import { AuthService } from "@/modules/auth/services/auth.service"; // Import AuthService
 
 // Import interfaces for type safety
 import type { 
@@ -21,6 +25,7 @@ import type {
     IUserRepository, 
     ITradeRepository, 
     IUserService,
+    IAuthService // Import IAuthService
     // ISuggestionService // No longer returned from here
 } from '@/core/interfaces';
 
@@ -39,61 +44,91 @@ export interface AppServices {
 }
 
 /**
- * Initializes and wires up all core application services.
+ * Initializes and wires up all core application services using Tsyringe.
  * This acts as the Composition Root.
  */
-export async function bootstrapApp(): Promise<AppServices> {
-    console.log("Bootstrapping application services...");
+export async function bootstrapApp(): Promise<AppServices> { // Return type might change
+    console.log("Bootstrapping application services with Tsyringe...");
 
+    // --- Tsyringe Container Registration ---
 
-    // Binance Service (Singleton)
-    // Use the imported singleton instance
+    // Example: Registering AuthService
+    container.register<IAuthService>("IAuthService", { useClass: AuthService });
+
+    // Register Repositories
+    container.register("IUserRepository", UserRepository);
+    container.register("ITradeRepository", TradeRepository);
+
+    // Register UserService
+    container.register("IUserService", UserService);
+
+    // Register Singleton Binance Service
     const binanceService: IBinanceService = binanceServiceInstance;
-    await binanceService.loadMarkets();
-    const spotMarketInfoMap = binanceService.getUsdcSpotMarketInfo();
-    const futuresMarketInfoMap = binanceService.getUsdcFuturesMarketInfo();
-    console.log("Binance markets loaded.");
+    await binanceService.loadMarkets(); // Perform async setup before registering instance
+    container.registerInstance<IBinanceService>("IBinanceService", binanceService);
+    console.log("Binance Service registered & markets loaded.");
 
-    // --- External Client Initialization ---
-    const tokenMetricsClient: ITokenMetricsClient = createTokenMetricsClient();
-    console.log("TokenMetrics client created.");
-    
-    const infiniteGamesClient: IInfiniteGamesClient = createInfiniteGamesClient();
-    console.log("InfiniteGames client created.");
+    // Register External Clients using Factories
+    container.register<ITokenMetricsClient>("ITokenMetricsClient", {
+         useFactory: (dependencyContainer) => createTokenMetricsClient()
+    });
+    console.log("TokenMetricsClient factory registered.");
 
-    // --- Application Service Initialization ---
-    const storageService: IStorageService = createStorageService();
-    console.log("Storage service created.");
+    container.register<IInfiniteGamesClient>("IInfiniteGamesClient", {
+         useFactory: (dependencyContainer) => createInfiniteGamesClient()
+    });
+    console.log("InfiniteGamesClient factory registered.");
 
-    const suggestionGenerator: ISuggestionGenerator = createSuggestionGenerator(
-        tokenMetricsClient,
-        spotMarketInfoMap,
-        futuresMarketInfoMap
-    );
-    console.log("Suggestion generator created.");
+    // Register Storage Service using Factory
+    container.register<IStorageService>("IStorageService", {
+         useFactory: (dependencyContainer) => createStorageService()
+    });
+    console.log("StorageService factory registered.");
 
-    const signalCheckIntervalMinutes = parseInt(process.env.SIGNAL_CHECK_INTERVAL_MINUTES || "60", 10);
-    const signalGenerator: ISignalGenerator = new SignalGenerator(
-        tokenMetricsClient, 
-        signalCheckIntervalMinutes
-    );
-    console.log("Signal generator created.");
+    // Register SuggestionGenerator using Factory
+    container.register<ISuggestionGenerator>("ISuggestionGenerator", {
+        useFactory: (dependencyContainer) => {
+            const tokenMetricsClient = dependencyContainer.resolve<ITokenMetricsClient>("ITokenMetricsClient");
+            const binanceService = dependencyContainer.resolve<IBinanceService>("IBinanceService");
+            // Assuming binanceService is already loaded/initialized
+            const spotMarketInfoMap = binanceService.getUsdcSpotMarketInfo();
+            const futuresMarketInfoMap = binanceService.getUsdcFuturesMarketInfo();
+            return createSuggestionGenerator(tokenMetricsClient, spotMarketInfoMap, futuresMarketInfoMap);
+        }
+    });
+    console.log("SuggestionGenerator factory registered.");
 
-    // Instantiate missing repositories and service
-    const userRepository = new UserRepository();
-    const tradeRepository = new TradeRepository();
-    const userService = new UserService(userRepository);
+    // Register SignalGenerator using Factory to handle constructor arguments
+    container.register<ISignalGenerator>("ISignalGenerator", {
+        useFactory: (dependencyContainer) => {
+            const tokenMetricsClient = dependencyContainer.resolve<ITokenMetricsClient>("ITokenMetricsClient");
+            // Read interval from environment or use default
+            const interval = parseInt(process.env.SIGNAL_CHECK_INTERVAL_MINUTES || "60", 10);
+            // Manually instantiate with resolved dependency and config value
+            return new SignalGenerator(tokenMetricsClient, interval);
+        }
+    });
+    console.log("SignalGenerator factory registered.");
 
+    // Instantiate missing repositories and service - OLD WAY (Commented out/removed)
+    // const userRepository = new UserRepository(); 
+    // const tradeRepository = new TradeRepository();
+    // const userService = new UserService(userRepository);
+
+    console.log("Initial Tsyringe registrations complete. Further refactoring needed.");
     console.log("Core application services bootstrapped successfully!");
+
+    // TODO: Decide what bootstrapApp should return now. Maybe nothing?
+    // For now, returning potentially stale instances from manual creation.
     return {
-        storageService,
-        binanceService,
-        tokenMetricsClient,
-        infiniteGamesClient,
-        suggestionGenerator, // Return the generator
-        signalGenerator,
-        userRepository,
-        tradeRepository,
-        userService,
+        storageService: container.resolve("IStorageService"),
+        binanceService: container.resolve("IBinanceService"),
+        tokenMetricsClient: container.resolve("ITokenMetricsClient"),
+        infiniteGamesClient: container.resolve("IInfiniteGamesClient"),
+        suggestionGenerator: container.resolve("ISuggestionGenerator"),
+        signalGenerator: container.resolve("ISignalGenerator"),
+        userRepository: container.resolve("IUserRepository"), 
+        tradeRepository: container.resolve("ITradeRepository"),
+        userService: container.resolve("IUserService"),
     };
 } 

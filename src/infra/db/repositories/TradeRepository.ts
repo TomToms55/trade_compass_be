@@ -1,7 +1,9 @@
 import prisma from '../prisma.client';
 import { Prisma, Trade } from '@prisma/client';
+import { injectable } from 'tsyringe';
 import { ITradeRepository, TradeDataInput } from '@/core/interfaces';
 
+@injectable()
 export class TradeRepository implements ITradeRepository {
 
     /**

@@ -1,17 +1,18 @@
 import { FastifyRequest, FastifyReply, HookHandlerDoneFunction } from 'fastify';
 import jwt from 'jsonwebtoken';
 
-interface JwtPayload {
+// Export the interface
+export interface JwtPayload {
     user_id: string;
     // Add other potential payload fields if necessary
     iat?: number; // Issued at (standard JWT claim)
     exp?: number; // Expiration time (standard JWT claim)
 }
 
-// Extend FastifyRequest interface to include the user property
+// Extend FastifyRequest interface to include the auth property
 declare module 'fastify' {
     interface FastifyRequest {
-        user?: JwtPayload;
+        auth?: JwtPayload;
     }
 }
 
@@ -41,8 +42,8 @@ export function authenticate(request: FastifyRequest, reply: FastifyReply, done:
              return; // Stop processing
         }
 
-        // Attach the decoded payload (including user_id) to the request object
-        request.user = decoded;
+        // Attach the decoded payload (including user_id) to the request object as auth
+        request.auth = decoded;
         done(); // Proceed to the next handler/route
     } catch (error: any) {
         console.error('JWT verification failed:', error.message);
