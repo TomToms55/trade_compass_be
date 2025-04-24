@@ -25,7 +25,7 @@ ssh $SSH_OPTS "$REMOTE_USER@$REMOTE_HOST" "cd $REMOTE_APP_DIR && \
     npm install && \
     echo 'Building project...' && \
     npx prisma generate && \
-    npx prisma migrate deploy && \
+    npx prisma migrate dev && \
     npm run build && \
     echo 'Running Prisma setup...' && \
     echo 'Restarting application $PM2_APP_NAME...' && \

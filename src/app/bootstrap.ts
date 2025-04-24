@@ -81,8 +81,7 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
 
     // Register Singleton Binance Service
     const binanceService: IBinanceService = binanceServiceInstance;
-    //PUT THIS BACK IN!
-    //await binanceService.loadMarkets(); // Perform async setup before registering instance
+    await binanceService.loadMarkets(); // Perform async setup before registering instance
     container.registerInstance<IBinanceService>("IBinanceService", binanceService);
     console.log("Binance Service registered & markets loaded.");
 
@@ -128,12 +127,7 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
     });
     console.log("SignalGenerator factory registered.");
 
-    // Instantiate missing repositories and service - OLD WAY (Commented out/removed)
-    // const userRepository = new UserRepository(); 
-    // const tradeRepository = new TradeRepository();
-    // const userService = new UserService(userRepository);
-
-    console.log("Initial Tsyringe registrations complete. Further refactoring needed.");
+    console.log("Initial Tsyringe registrations complete");
     console.log("Core application services bootstrapped successfully!");
 
     // TODO: Decide what bootstrapApp should return now. Maybe nothing?

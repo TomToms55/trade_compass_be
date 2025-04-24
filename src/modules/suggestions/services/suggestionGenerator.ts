@@ -30,6 +30,7 @@ export class SuggestionGenerator implements ISuggestionGenerator {
   async generateSuggestions(): Promise<TradeSuggestion[]> {
     const traderGrades = await this.tokenMetricsClient.getTraderGrades(TARGET_SYMBOLS);
     const suggestions: TradeSuggestion[] = [];
+    const skippedSymbols: string[] = [];
 
     for (const grade of traderGrades) {
         const baseSymbolUpper = grade.symbol_id.toUpperCase();
@@ -47,7 +48,7 @@ export class SuggestionGenerator implements ISuggestionGenerator {
             const { action, confidence } = this.determineActionAndConfidence(grade.ta_grade, grade.quant_grade, grade.tm_grade);
 
             if (action === "SELL" && !hasFuturesMarket) {
-                console.log(`Skipping SELL suggestion for ${baseSymbolUpper} - no futures market available`);
+                skippedSymbols.push(baseSymbolUpper);
                 continue;
             }
 
@@ -67,9 +68,11 @@ export class SuggestionGenerator implements ISuggestionGenerator {
                 },
             });
         } else {
-            console.log(`Skipping suggestion for ${baseSymbolUpper} - no active Spot or Futures USDC pair found.`);
+            skippedSymbols.push(baseSymbolUpper);
         }
     }
+
+    console.log(`Skipped suggestions for ${skippedSymbols.length} symbols: ${skippedSymbols.join(', ')}`);
     return suggestions;
   }
 

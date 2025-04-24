@@ -77,8 +77,8 @@ export default async function authRoutes(fastify: FastifyInstance, options: Fast
           reply.code(201).send({ success: true, userId: result.userId });
         } else {
           // Use 400 Bad Request for registration failure (e.g., user exists, validation)
-          // Improve error message based on actual failure reason if possible
-          reply.code(400).send({ success: false, message: 'Registration failed.' });
+          // Use the message from the service result if available
+          reply.code(400).send({ success: false, message: result.message || 'Registration failed.' });
         }
       } catch (error) {
          // Log the detailed error using Fastify's logger
