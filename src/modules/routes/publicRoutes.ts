@@ -134,6 +134,8 @@ export default async function publicRoutes(fastify: FastifyInstance, options: Fa
             querystring: z.object({ // Define query params schema
                 limit: z.string().optional().default('9').describe('Maximum number of suggestions per page'),
                 offset: z.string().optional().default('0').describe('Number of suggestions to skip for pagination'),
+                confidence: z.string().optional().default('0.15').describe('Minimum prediction delta from 0.5 (e.g., 0.15 means prediction > 0.65 or < 0.35)'),
+                market: z.string().optional().describe('Filter events by market type (e.g., POLYMARKET, KALSHI)'),
             }),
             response: {
                 200: EventSuggestionsResponseSchema,
@@ -142,20 +144,61 @@ export default async function publicRoutes(fastify: FastifyInstance, options: Fa
         }
     }, async (request, reply) => {
         try {
-            const query = request.query as { limit?: string; offset?: string };
+            // Parse query parameters including the new confidence threshold and market filter
+            const query = request.query as { limit?: string; offset?: string; confidence?: string; market?: string };
             const limit = query.limit ? parseInt(query.limit, 10) : 9;
             const offset = query.offset ? parseInt(query.offset, 10) : 0;
+            const confidenceThreshold = query.confidence ? parseFloat(query.confidence) : 0.15; // Default 0.15 delta
+            const marketFilter = query.market?.toUpperCase(); // Normalize to uppercase for case-insensitive comparison
+
+            if (isNaN(confidenceThreshold) || confidenceThreshold < 0 || confidenceThreshold > 0.5) {
+                return reply.status(400).send({
+                    error: "Bad Request",
+                    message: "Invalid confidence threshold. Must be a number between 0.0 and 0.5."
+                });
+            }
 
             const allEventData = await storageService.getInfiniteGamesData();
 
-            if (allEventData.length === 0) {
+            // Filter events based on market type first (if provided)
+            let intermediateEvents = allEventData;
+            if (marketFilter) {
+                intermediateEvents = intermediateEvents.filter(event => 
+                    event.market_type?.toUpperCase() === marketFilter
+                );
+            }
+
+            // Filter events based on community prediction confidence and ensure prediction exists
+            const filteredEvents = intermediateEvents.filter(event => {
+                const prediction = event.communityPrediction?.community_prediction;
+                // Ensure prediction is a valid number before comparing
+                return typeof prediction === 'number' && 
+                       !isNaN(prediction) &&
+                       (prediction > (0.5 + confidenceThreshold) || prediction < (0.5 - confidenceThreshold));
+            });
+
+            // Sort filtered events by end_date (ascending - soonest first)
+            // Ensure end_date is treated as a number (timestamp)
+             const sortedEvents = filteredEvents.sort((a, b) => {
+                 const endDateA = typeof a.end_date === 'number' ? a.end_date : Infinity;
+                 const endDateB = typeof b.end_date === 'number' ? b.end_date : Infinity;
+                 return endDateA - endDateB;
+             });
+
+
+            if (sortedEvents.length === 0) {
+                // Return empty response respecting pagination structure
                 return reply.send({ items: [], totalItems: 0, totalPages: 0, currentPage: 1, itemsPerPage: limit });
             }
 
-            const totalItems = allEventData.length;
+            // Paginate the sorted and filtered data
+            const totalItems = sortedEvents.length;
             const totalPages = Math.ceil(totalItems / limit);
-            const paginatedData = allEventData.slice(offset, offset + limit);
-            const currentPage = Math.floor(offset / limit) + 1;
+            // Clamp offset to prevent going beyond available items
+            const clampedOffset = Math.max(0, Math.min(offset, totalItems)); 
+            const paginatedData = sortedEvents.slice(clampedOffset, clampedOffset + limit);
+            // Calculate current page based on clamped offset
+            const currentPage = totalItems === 0 ? 1 : Math.floor(clampedOffset / limit) + 1; 
 
             const response = {
                 items: paginatedData,

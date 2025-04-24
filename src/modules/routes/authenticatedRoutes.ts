@@ -375,11 +375,7 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         request.log.info(`User ${userId} requesting their trades.`);
 
         try {
-            // TODO: Implement tradeRepository.findByUserId(userId)
-            // For now, assume it returns Trade[]
             const trades = await tradeRepository.findByUserId(userId); 
-            
-            // Response validated by Zod
             return reply.send(trades); 
 
         } catch (error: any) {

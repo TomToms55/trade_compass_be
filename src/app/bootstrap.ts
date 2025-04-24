@@ -1,9 +1,8 @@
 //import "reflect-metadata"; // Must be imported first for tsyringe
 import { container } from "tsyringe";
 
-import binanceServiceInstance, { BinanceService } from '@/modules/services/binance'; // Import the instance and potentially the class
+import BinanceService from '@/modules/services/binance'; // Import the instance and potentially the class
 import createStorageService from '@/modules/services/storage';
-import { createTokenMetricsClient } from '@/infra/external/tokenMetrics';
 import { createInfiniteGamesClient } from '@/infra/external/infiniteGames';
 import { createSuggestionGenerator } from '@/modules/suggestions/services/suggestionGenerator';
 import { SignalGenerator } from '@/modules/services/signalGenerator';
@@ -17,6 +16,10 @@ import { TradeClosureService } from "@/modules/trading/services/trade-closure.se
 import { IInfiniteGamesService } from '@/core/interfaces/IInfiniteGamesService'; 
 import { InfiniteGamesService } from '@/modules/infinite_games/services/infiniteGames.service';
 import { SuggestionService } from '@/modules/suggestions/services/suggestion.service'; // Import SuggestionService
+// Import the concrete class for direct registration
+import { TokenMetricsClient } from '@/infra/external/tokenMetrics';
+// Import the new LLM client
+import { GeminiClient } from '@/infra/external/llm/gemini.client';
 
 // Import interfaces for type safety
 import type { 
@@ -30,7 +33,8 @@ import type {
     ITradeRepository, 
     IUserService,
     IAuthService, // Import IAuthService
-    ITradeClosureService // Import ITradeClosureService
+    ITradeClosureService, // Import ITradeClosureService
+    ILLMClient // Add LLM Client interface
     // ISuggestionService // No longer returned from here
 } from '@/core/interfaces';
 
@@ -47,6 +51,7 @@ export interface AppServices {
     userService: IUserService;
     tradeClosureService: ITradeClosureService; // Add TradeClosureService
     infiniteGamesService: IInfiniteGamesService; // Add the service interface back
+    llmClient: ILLMClient; // Add LLM Client
 }
 
 /**
@@ -79,17 +84,17 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
     // Register UserService
     container.register("IUserService", UserService);
 
-    // Register Singleton Binance Service
-    const binanceService: IBinanceService = binanceServiceInstance;
+    const binanceService = container.resolve<BinanceService>(BinanceService);
     await binanceService.loadMarkets(); // Perform async setup before registering instance
     container.registerInstance<IBinanceService>("IBinanceService", binanceService);
     console.log("Binance Service registered & markets loaded.");
 
-    // Register External Clients using Factories
+    // Register External Clients using Factories/Classes
+    // **** UPDATED **** Use useClass for TokenMetricsClient which is now a singleton
     container.register<ITokenMetricsClient>("ITokenMetricsClient", {
-         useFactory: (dependencyContainer) => createTokenMetricsClient()
+         useClass: TokenMetricsClient 
     });
-    console.log("TokenMetricsClient factory registered.");
+    console.log("TokenMetricsClient registered using useClass.");
 
     container.register<IInfiniteGamesClient>("IInfiniteGamesClient", {
          useFactory: (dependencyContainer) => createInfiniteGamesClient()
@@ -127,6 +132,10 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
     });
     console.log("SignalGenerator factory registered.");
 
+    // Register LLM Client
+    container.register<ILLMClient>("ILLMClient", { useClass: GeminiClient });
+    console.log("LLM Client (Gemini) registered.");
+
     console.log("Initial Tsyringe registrations complete");
     console.log("Core application services bootstrapped successfully!");
 
@@ -135,7 +144,7 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
     return {
         storageService: container.resolve("IStorageService"),
         binanceService: container.resolve("IBinanceService"),
-        tokenMetricsClient: container.resolve("ITokenMetricsClient"),
+        tokenMetricsClient: container.resolve("ITokenMetricsClient"), // This will now correctly resolve the singleton
         infiniteGamesClient: container.resolve("IInfiniteGamesClient"),
         suggestionGenerator: container.resolve("ISuggestionGenerator"),
         signalGenerator: container.resolve("ISignalGenerator"),
@@ -143,6 +152,7 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
         tradeRepository: container.resolve("ITradeRepository"),
         userService: container.resolve("IUserService"),
         tradeClosureService: container.resolve("ITradeClosureService"), // Resolve TradeClosureService
-        infiniteGamesService: container.resolve("IInfiniteGamesService") // Resolve and return the new service again
+        infiniteGamesService: container.resolve("IInfiniteGamesService"), // Resolve and return the new service again
+        llmClient: container.resolve("ILLMClient") // Resolve LLM Client
     };
 } 

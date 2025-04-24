@@ -8,71 +8,87 @@ const TARGET_SYMBOLS = ["BTC", "ETH", "BNB", "SOL", "XRP", "ADA", "AVAX", "DOT",
 export class SuggestionGenerator implements ISuggestionGenerator {
   private tokenMetricsClient: ITokenMetricsClient;
   // Store records mapping symbol to MarketInfo
-  private spotMarketInfoMap: Record<string, MarketInfo>;   
-  private futuresMarketInfoMap: Record<string, MarketInfo>; 
+  private spotMarketInfoMap: Record<string, MarketInfo>;
+  private futuresMarketInfoMap: Record<string, MarketInfo>;
 
   // Updated constructor signature to accept MarketInfo records
-  constructor(
-      tokenMetricsClient: ITokenMetricsClient, 
-      spotMarketInfoMap: Record<string, MarketInfo>, 
-      futuresMarketInfoMap: Record<string, MarketInfo>
-  ) { 
+  constructor(tokenMetricsClient: ITokenMetricsClient, spotMarketInfoMap: Record<string, MarketInfo>, futuresMarketInfoMap: Record<string, MarketInfo>) {
     this.tokenMetricsClient = tokenMetricsClient;
     this.spotMarketInfoMap = spotMarketInfoMap;
     this.futuresMarketInfoMap = futuresMarketInfoMap;
-    console.log(`SuggestionGenerator initialized with info for ${Object.keys(this.spotMarketInfoMap).length} Spot & ${Object.keys(this.futuresMarketInfoMap).length} Futures pairs.`);
+    console.log(
+      `SuggestionGenerator initialized with info for ${Object.keys(this.spotMarketInfoMap).length} Spot & ${
+        Object.keys(this.futuresMarketInfoMap).length
+      } Futures pairs.`
+    );
   }
 
   /**
-   * Generate trade suggestions based on data from various APIs, 
+   * Generate trade suggestions based on data from various APIs,
    * identifying available Binance Spot and Futures USDC markets. // Updated comment
    */
   async generateSuggestions(): Promise<TradeSuggestion[]> {
     const traderGrades = await this.tokenMetricsClient.getTraderGrades(TARGET_SYMBOLS);
     const suggestions: TradeSuggestion[] = [];
     const skippedSymbols: string[] = [];
+    const seenMarkets = new Set<string>();
 
     for (const grade of traderGrades) {
-        const baseSymbolUpper = grade.symbol_id.toUpperCase();
-        const spotMarketSymbol = `${baseSymbolUpper}/USDC`;
-        const futuresMarketSymbol = `${baseSymbolUpper}/USDC:USDC`;
+      const baseSymbolUpper = grade.symbol_id.toUpperCase();
 
-        // Look up MarketInfo from the maps
-        const spotInfo = this.spotMarketInfoMap[spotMarketSymbol] || null;
-        const futuresInfo = this.futuresMarketInfoMap[futuresMarketSymbol] || null;
-        
-        const hasSpotMarket = !!spotInfo;
-        const hasFuturesMarket = !!futuresInfo;
+      if (grade.symbol.toLowerCase().includes("binance-peg")) {
+        skippedSymbols.push(baseSymbolUpper);
+        continue;
+      }
+      
+      const spotMarketSymbol = `${baseSymbolUpper}/USDC`;
+      const futuresMarketSymbol = `${baseSymbolUpper}/USDC:USDC`;
 
-        if (hasSpotMarket || hasFuturesMarket) {
-            const { action, confidence } = this.determineActionAndConfidence(grade.ta_grade, grade.quant_grade, grade.tm_grade);
+      // Look up MarketInfo from the maps
+      const spotInfo = this.spotMarketInfoMap[spotMarketSymbol] || null;
+      const futuresInfo = this.futuresMarketInfoMap[futuresMarketSymbol] || null;
 
-            if (action === "SELL" && !hasFuturesMarket) {
-                skippedSymbols.push(baseSymbolUpper);
-                continue;
-            }
+      const hasSpotMarket = !!spotInfo;
+      const hasFuturesMarket = !!futuresInfo;
 
-            suggestions.push({
-                symbol_id: grade.symbol_id,
-                symbol: grade.symbol, 
-                spotMarket: hasSpotMarket ? spotMarketSymbol : null,
-                futuresMarket: hasFuturesMarket ? futuresMarketSymbol : null,
-                spotMarketInfo: spotInfo, // Add market info
-                futuresMarketInfo: futuresInfo, // Add market info
-                action,
-                confidence,
-                details: {
-                    ta_grade: grade.ta_grade,
-                    quant_grade: grade.quant_grade,
-                    tm_grade: grade.tm_grade,
-                },
-            });
-        } else {
-            skippedSymbols.push(baseSymbolUpper);
+      if (hasSpotMarket || hasFuturesMarket) {
+        const { action, confidence } = this.determineActionAndConfidence(grade.ta_grade, grade.quant_grade, grade.tm_grade);
+
+        if (action === "SELL" && !hasFuturesMarket) {
+          skippedSymbols.push(baseSymbolUpper);
+          continue;
         }
+
+        // Check for duplicate markets
+        if (seenMarkets.has(spotMarketSymbol)) {
+          skippedSymbols.push(baseSymbolUpper);
+          continue;
+        }
+
+        // Add markets to the seen set
+        if (hasSpotMarket) seenMarkets.add(spotMarketSymbol);
+
+        suggestions.push({
+          symbol_id: grade.symbol_id,
+          symbol: grade.symbol,
+          spotMarket: hasSpotMarket ? spotMarketSymbol : null,
+          futuresMarket: hasFuturesMarket ? futuresMarketSymbol : null,
+          spotMarketInfo: spotInfo, // Add market info
+          futuresMarketInfo: futuresInfo, // Add market info
+          action,
+          confidence,
+          details: {
+            ta_grade: grade.ta_grade,
+            quant_grade: grade.quant_grade,
+            tm_grade: grade.tm_grade,
+          },
+        });
+      } else {
+        skippedSymbols.push(baseSymbolUpper);
+      }
     }
 
-    console.log(`Skipped suggestions for ${skippedSymbols.length} symbols: ${skippedSymbols.join(', ')}`);
+    console.log(`Skipped suggestions for ${skippedSymbols.length} symbols: ${skippedSymbols.join(", ")}`);
     return suggestions;
   }
 
@@ -112,9 +128,9 @@ export class SuggestionGenerator implements ISuggestionGenerator {
 
 // Updated factory function signature
 export function createSuggestionGenerator(
-    tokenMetricsClient: ITokenMetricsClient, 
-    spotMarketInfoMap: Record<string, MarketInfo>, // Pass maps
-    futuresMarketInfoMap: Record<string, MarketInfo> 
+  tokenMetricsClient: ITokenMetricsClient,
+  spotMarketInfoMap: Record<string, MarketInfo>, // Pass maps
+  futuresMarketInfoMap: Record<string, MarketInfo>
 ): ISuggestionGenerator {
   return new SuggestionGenerator(tokenMetricsClient, spotMarketInfoMap, futuresMarketInfoMap);
 }

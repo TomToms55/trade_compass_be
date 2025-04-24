@@ -8,6 +8,17 @@ import type { Order as CcxtOrder } from 'ccxt'; // Import ccxt Order type for Tr
 import type { CommunityPredictionResponse } from '@/infra/external/infiniteGames'; // Import the new response type
 import type { PredictedFullEvent } from '@/modules/infinite_games/services/infiniteGames.service';
 
+// == LLM Interface ==
+export interface ILLMClient {
+    /**
+     * Generates content based on a prompt, typically used for summarization or other text generation tasks.
+     * @param prompt The input text/prompt for the LLM.
+     * @returns The generated text content.
+     * @throws Error if the generation fails.
+     */
+    generateContent(prompt: string): Promise<string>;
+}
+
 // Moved from domainTypes.ts
 export interface IStorageService {
   getSuggestions(): Promise<TradeSuggestion[]>;
@@ -44,7 +55,7 @@ export interface ITokenMetricsClient {
 }
 
 export interface IInfiniteGamesClient {
-  getEvents(limit?: number, offset?: number): Promise<InfiniteGamesEvent[]>;
+  getEvents(limit?: number, offset?: number, order?: string): Promise<InfiniteGamesEvent[]>;
   getSingleEventDetails(eventId: string): Promise<EventDetails>;
   getCommunityPrediction(eventId: string): Promise<CommunityPredictionResponse>;
 }

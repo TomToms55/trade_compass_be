@@ -13,7 +13,7 @@ const safeMinMax = (limit: any): { min: number | null; max: number | null } | nu
 };
 
 // Export the class type for use in declarations
-export class BinanceService implements IBinanceService { // Implement the interface
+export default class BinanceService implements IBinanceService { // Implement the interface
     private exchange: ccxt.Exchange;
     private markets: { [symbol: string]: ccxt.Market } = {};
     // Store MarketInfo objects instead of just symbols
@@ -307,8 +307,3 @@ export class BinanceService implements IBinanceService { // Implement the interf
         }
     }
 }
-
-// Singleton instance
-const binanceService = new BinanceService();
-
-export default binanceService; 

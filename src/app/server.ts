@@ -96,7 +96,7 @@ export async function build(): Promise<FastifyInstance> {
           { name: 'auth', description: 'Authentication Endpoints' },
           { name: 'user', description: 'User-specific Endpoints (Auth Required)' },
           { name: 'crypto', description: 'Crypto-related Endpoints' },
-          { name: 'polymarket', description: 'Polymarket-related Endpoints' },
+          { name: 'polymarket', description: 'Polymarket-related Endpoints (in development)' },
         ],
         // Define security definitions for JWT
         securityDefinitions: {

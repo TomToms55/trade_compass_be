@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { InfiniteGamesEvent } from '@/core/domainTypes';
 import type { IInfiniteGamesClient } from '@/core/interfaces';
+import { singleton } from 'tsyringe';
 
 // Define the structure of the API response based on user input
 export interface IGItem {
@@ -52,6 +53,7 @@ export interface CommunityPredictionResponse {
  * Client for interacting with the Infinite Games API
  * Fetches event data from https://ifgames.win/api/v2/events
  */
+@singleton()
 export class InfiniteGamesClient implements IInfiniteGamesClient {
   private baseUrl = 'https://ifgames.win/api/v2';
   private apiKey: string;
@@ -71,11 +73,12 @@ export class InfiniteGamesClient implements IInfiniteGamesClient {
    * @param limit Optional limit for pagination
    * @param offset Optional offset for pagination
    */
-  async getEvents(limit?: number, offset?: number): Promise<InfiniteGamesEvent[]> {
+  async getEvents(limit?: number, offset?: number, order?: string): Promise<InfiniteGamesEvent[]> {
     try {
-      const params: { limit?: number; offset?: number } = {};
+      const params: { limit?: number; offset?: number; order?: string } = {};
       if (limit !== undefined) params.limit = limit;
       if (offset !== undefined) params.offset = offset;
+      if (order !== undefined) params.order = order;
 
       const response = await axios.get<IGApiResponse>(`${this.baseUrl}/events`, {
         params: params,
