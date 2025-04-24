@@ -35,6 +35,21 @@ export class UserRepository implements IUserRepository {
   }
 
   /**
+   * Finds a user by their unique email address.
+   */
+  async findByEmail(email: string): Promise<User | null> {
+    try {
+      const user = await this.client.user.findUnique({
+        where: { email: email },
+      });
+      return user;
+    } catch (error) {
+      console.error(`Error finding user by email ${email}:`, error);
+      return null;
+    }
+  }
+
+  /**
    * Finds a user's API credentials by their unique ID.
    * Only selects the necessary fields.
    */
@@ -72,6 +87,7 @@ export class UserRepository implements IUserRepository {
           const newUser = await this.client.user.create({
               data: {
                   id: userData.id,
+                  email: userData.email,
                   apiKey: userData.apiKey,
                   apiSecret: userData.apiSecret,
                   passwordHash: userData.passwordHash,
@@ -83,15 +99,15 @@ export class UserRepository implements IUserRepository {
           return newUser;
       } catch (error) {
           // Log the error appropriately
-          console.error(`Error creating user with ID ${userData.id}:`, error);
+          console.error(`Error creating user with ID ${userData.id} or email ${userData.email}:`, error);
           // Re-throw a more specific error or handle as needed
           // Check for unique constraint violation (e.g., duplicate ID or API key if unique)
           if (error instanceof Prisma.PrismaClientKnownRequestError) {
                // Example: Unique constraint failed (code P2002)
                if (error.code === 'P2002') {
                    // Could check error.meta.target to see which field failed
-                   console.error(`Unique constraint violation creating user ${userData.id}.`);
-                   throw new Error(`User creation failed due to unique constraint.`); 
+                   console.error(`Unique constraint violation creating user ${userData.id}. Target: ${error.meta?.target}`);
+                   throw new Error(`User creation failed: ID or Email already exists.`); 
                }
           }
           throw new Error(`Failed to create user ${userData.id}`);
@@ -104,16 +120,18 @@ export class UserRepository implements IUserRepository {
   async addOrUpdate(userData: UserDataInput): Promise<User> {
     try {
       const updatePayload: Prisma.UserUpdateInput = {};
+      if (userData.email !== undefined) updatePayload.email = userData.email;
       if (userData.apiKey !== undefined) updatePayload.apiKey = userData.apiKey;
       if (userData.apiSecret !== undefined) updatePayload.apiSecret = userData.apiSecret;
       if (userData.passwordHash !== undefined) updatePayload.passwordHash = userData.passwordHash;
 
-      if (!userData.apiKey || !userData.apiSecret || !userData.passwordHash) {
-        console.warn(`Attempting to create user ${userData.id} without required apiKey, apiSecret, or passwordHash. Ensure these are provided.`);
+      if (!userData.email || !userData.apiKey || !userData.apiSecret || !userData.passwordHash) {
+        console.warn(`Attempting to create user ${userData.id} via upsert without required email, apiKey, apiSecret, or passwordHash. Ensure these are provided if the user does not exist.`);
       }
 
       const createPayload: Prisma.UserCreateInput = {
         id: userData.id,
+        email: userData.email!,
         apiKey: userData.apiKey!,
         apiSecret: userData.apiSecret!,
         passwordHash: userData.passwordHash!,

@@ -83,6 +83,38 @@ const UpdateUserSettingsSuccessResponseSchema = z.object({
     user: UserSchema
 }).describe('Successful user settings update response');
 
+// --- Trades List Schemas ---
+// Define a Zod schema for the Trade object based on Prisma model (adjust fields as needed)
+const TradeSchema = z.object({
+    tradeId: z.number().int().positive().describe('Unique identifier for the trade'),
+    userId: z.string().describe('User ID associated with the trade'),
+    orderId: z.string().describe('Original exchange order ID'),
+    timestamp: z.date().describe('Timestamp when the order was placed'),
+    symbol: z.string().describe('Market symbol (e.g., BTC/USDC)'),
+    type: z.string().describe('Order type (e.g., market, limit)'),
+    side: z.string().describe('Order side (e.g., buy, sell)'),
+    price: z.number().nullable().describe('Execution price (null if not applicable)'),
+    amount: z.number().describe('Ordered amount'),
+    cost: z.number().nullable().describe('Total cost (price * amount)'),
+    filled: z.number().describe('Amount filled'),
+    remaining: z.number().describe('Amount remaining'),
+    status: z.string().nullable().describe('Order status (e.g., open, closed, canceled)'),
+    feeCost: z.number().nullable().describe('Fee cost'),
+    feeCurrency: z.string().nullable().describe('Fee currency'),
+    marketType: z.string().describe('Market type (spot or futures)'),
+    // rawOrder: z.string().describe('Raw order data (JSON string)'), // Omitted for brevity
+    tcState: z.string().nullable().describe('Trade lifecycle state (e.g., OPEN, COMPLETED)'),
+    closeOrderId: z.string().nullable().describe('Order ID of the closing trade'),
+    closeTimestamp: z.date().nullable().describe('Timestamp of the closing trade'),
+    closePrice: z.number().nullable().describe('Price of the closing trade'),
+    closeCost: z.number().nullable().describe('Cost of the closing trade'),
+    profit: z.number().nullable().describe('Realized profit/loss'),
+    durationMs: z.number().int().nullable().describe('Duration of the trade in milliseconds'),
+}).describe('Detailed information about a single trade');
+
+// Schema for the successful response (array of trades)
+const GetTradesSuccessResponseSchema = z.array(TradeSchema).describe('List of trades for the user');
+
 
 export default async function authenticatedRoutes(fastify: FastifyInstance, options: FastifyPluginOptions) {
 
@@ -98,12 +130,12 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
     // Define security requirement for all routes in this plugin
     const securityRequirement = [{ apiKey: [] }];
 
-    // POST /fetchOHLCV
-    fastify.post<{ Body: FetchOhlcvBody }>("/fetchOHLCV", {
+    // POST /crypto/fetchOHLCV
+    fastify.post<{ Body: FetchOhlcvBody }>("/crypto/fetchOHLCV", {
          schema: {
              description: 'Fetch historical OHLCV (candlestick) data for a given market symbol.',
-             tags: ['trading'],
-             summary: 'Fetch OHLCV Data',
+             tags: ['crypto'],
+             summary: 'Fetch Crypto OHLCV Data',
              security: securityRequirement,
              body: FetchOhlcvBodySchema,
              response: {
@@ -153,12 +185,12 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
     });
 
-    // GET /fetchBalance
-    fastify.get("/fetchBalance", {
+    // GET /crypto/balance
+    fastify.get("/crypto/balance", {
         schema: {
             description: 'Fetch the current USDC balance for both Spot and Futures accounts associated with the user\'s API keys.',
-            tags: ['user'],
-            summary: 'Fetch User Balance',
+            tags: ['crypto'],
+            summary: 'Fetch Crypto Balance',
             security: securityRequirement,
             response: {
                 200: BalanceResponseSchema,
@@ -194,7 +226,7 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
                 usdcBalance: { spot: balances.spot, futures: balances.futures } 
             });
         } catch (error: any) { // Keep existing error handling
-            request.log.error(`Error in /fetchBalance route for user ${userId}: ${error.message}`);
+            request.log.error(`Error in /crypto/balance route for user ${userId}: ${error.message}`);
             if (error instanceof ccxt.AuthenticationError) {
                  return reply.code(403).send({ error: 'Authentication Error', message: 'Invalid Binance API key or secret provided.' });
             }
@@ -214,12 +246,12 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
         }
     });
 
-    // POST /placeTrade 
-    fastify.post<{ Body: PlaceTradeBody }>("/placeTrade", { 
+    // POST /crypto/trade
+    fastify.post<{ Body: PlaceTradeBody }>("/crypto/trade", { 
         schema: {
             description: 'Place a market order (buy or sell) on either the Spot or Futures market.',
-            tags: ['trading'],
-            summary: 'Place Market Order',
+            tags: ['crypto'],
+            summary: 'Place Crypto Market Order',
             security: securityRequirement,
             body: PlaceTradeBodySchema,
             response: {
@@ -317,6 +349,44 @@ export default async function authenticatedRoutes(fastify: FastifyInstance, opti
             return reply.code(500).send({ 
                 error: "Internal Server Error", 
                 message: error.message || "Failed to place trade due to an unexpected error." 
+            });
+        }
+    });
+
+    // GET /crypto/trades
+    fastify.get("/crypto/trades", {
+        schema: {
+            description: 'Fetch all trades recorded for the authenticated user, ordered by most recent first.',
+            tags: ['crypto'],
+            summary: 'Fetch Crypto Trades',
+            security: securityRequirement,
+            response: {
+                200: GetTradesSuccessResponseSchema,
+                401: UnauthorizedResponseSchema,
+                500: ErrorResponseSchema // Internal Server Error
+            }
+        }
+    }, async (request, reply) => {
+        if (!request.auth) {
+            return reply.code(401).send({ error: "Unauthorized", message: "Authentication context missing." });
+        }
+        const authPayload = request.auth as JwtPayload;
+        const userId = authPayload.user_id;
+        request.log.info(`User ${userId} requesting their trades.`);
+
+        try {
+            // TODO: Implement tradeRepository.findByUserId(userId)
+            // For now, assume it returns Trade[]
+            const trades = await tradeRepository.findByUserId(userId); 
+            
+            // Response validated by Zod
+            return reply.send(trades); 
+
+        } catch (error: any) {
+            request.log.error({ err: error }, `Error fetching trades for user ${userId}`);
+            return reply.code(500).send({
+                error: "Internal Server Error",
+                message: "An unexpected error occurred while fetching trades."
             });
         }
     });

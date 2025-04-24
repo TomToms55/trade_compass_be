@@ -1,7 +1,9 @@
 // import { ILogger } from '@/core/types'; // Remove this import
+import { injectable, inject } from 'tsyringe'; // Add imports
 import type { FastifyBaseLogger } from 'fastify'; // Import Fastify logger type
 import { ISuggestionGenerator, IStorageService } from '@/core/interfaces';
 
+@injectable() // Add injectable decorator
 export class SuggestionService {
     private suggestionGenerator: ISuggestionGenerator;
     private storageService: IStorageService;
@@ -10,13 +12,14 @@ export class SuggestionService {
     private isUpdating: boolean = false; // Prevent concurrent updates
 
     constructor(        
-        suggestionGenerator: ISuggestionGenerator,
-        storageService: IStorageService,
-        logger: FastifyBaseLogger // Accept Fastify logger instance
+        @inject("ISuggestionGenerator") suggestionGenerator: ISuggestionGenerator, // Add inject decorator
+        @inject("IStorageService") storageService: IStorageService,             // Add inject decorator
+        @inject("Logger") logger: FastifyBaseLogger                             // Add inject decorator
     ) {
         this.suggestionGenerator = suggestionGenerator;
         this.storageService = storageService;
         this.logger = logger;
+        this.logger.info('SuggestionService initialized'); // Add init log
     }
 
     /**

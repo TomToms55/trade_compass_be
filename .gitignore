@@ -22,3 +22,5 @@ npm-debug.log*
 *.swo 
 
 codebase_rules.md
+
+coverage

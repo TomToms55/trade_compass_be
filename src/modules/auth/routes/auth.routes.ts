@@ -6,6 +6,7 @@ import { AuthService } from '../services/auth.service'; // Import concrete type 
 
 // Define the schema for the registration request body using Zod
 const RegisterUserSchema = z.object({
+  email: z.string().email("Invalid email format").describe('Your email address'),
   apiKey: z.string().min(1, "API Key is required").describe('Your Binance API Key'),
   apiSecret: z.string().min(1, "API Secret is required").describe('Your Binance API Secret'),
   password: z.string().min(8, "Password must be at least 8 characters long").describe('Your desired account password'),
@@ -16,10 +17,16 @@ type RegisterUserBody = z.infer<typeof RegisterUserSchema>;
 
 // Define the schema for the login request body using Zod
 const LoginUserSchema = z.object({
-  // Consider using email or username instead of userId for login flexibility
-  userId: z.string().min(1, "User ID is required").describe('The unique ID of the user'),
+  // Allow either userId or email, but not both
+  userId: z.string().min(1).optional().describe('The unique ID of the user (optional if email provided)'),
+  email: z.string().email().optional().describe('The user\'s email address (optional if userId provided)'),
   password: z.string().min(1, "Password is required").describe('The user\'s account password'),
-}).describe('Payload for user login');
+})
+.refine(data => !!data.userId !== !!data.email, { // XOR condition: one must be present, not both
+  message: "Please provide either userId or email, but not both.",
+  path: ["userId", "email"], // Associate error with both fields
+})
+.describe('Payload for user login (use either userId or email)');
 
 // Define response schemas using Zod
 const RegisterSuccessResponseSchema = z.object({ 
@@ -97,10 +104,12 @@ export default async function authRoutes(fastify: FastifyInstance, options: Fast
     },
     handler: async (request, reply: FastifyReply) => {
       try {
-        const { userId, password } = request.body;
-        const isValid = await authService.verifyUserCredentials(userId, password);
+        const { userId, email, password } = request.body;
+        // The authService will handle finding the user by userId or email
+        // Pass both potential identifiers and password to the service
+        const result = await authService.verifyUserCredentialsWithIdentifier(userId, email, password);
 
-        if (isValid) {
+        if (result.isValid && result.userId) {
           // IMPORTANT: The fastify instance needs the @fastify/jwt plugin registered
           // and configured with a secret for this to work. This should be done
           // in the main application setup (e.g., src/app.ts or src/server.ts).
@@ -109,8 +118,8 @@ export default async function authRoutes(fastify: FastifyInstance, options: Fast
           if (!jwt) {
             throw new Error('JWT plugin is not registered or configured.');
           }
-          // Sign token with user_id (snake_case) to match middleware expectation
-          const token = await jwt.sign({ user_id: userId }); 
+          // Sign token with the actual user_id returned by the service
+          const token = await jwt.sign({ user_id: result.userId }); 
           reply.code(200).send({ success: true, token });
         } else {
           reply.code(401).send({ success: false, message: 'Invalid credentials.' });

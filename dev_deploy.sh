@@ -16,7 +16,7 @@ echo "Starting development deployment (full rsync)..."
 
 # 1. Sync project folder using rsync, excluding specified files/dirs
 echo "Syncing project folder to $REMOTE_HOST..."
-rsync -avz --delete --exclude 'node_modules' --exclude 'dist' --exclude 'package-lock.json' --exclude '*.md' --exclude '.git' --exclude 'data' -e "ssh $SSH_OPTS" ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_APP_DIR/"
+rsync -avz --delete --exclude 'node_modules' --exclude 'dist' --exclude 'coverage' --exclude 'package-lock.json' --exclude '*.md' --exclude '.git' --exclude 'data' --exclude 'prisma/migrations' -e "ssh $SSH_OPTS" ./ "$REMOTE_USER@$REMOTE_HOST:$REMOTE_APP_DIR/"
 
 # 2. Install dependencies, build, run Prisma, and restart PM2 on remote server
 echo "Running setup on $REMOTE_HOST..."
@@ -24,10 +24,10 @@ ssh $SSH_OPTS "$REMOTE_USER@$REMOTE_HOST" "cd $REMOTE_APP_DIR && \
     echo 'Installing dependencies...' && \
     npm install && \
     echo 'Building project...' && \
-    npm run build && \
-    echo 'Running Prisma setup...' && \
     npx prisma generate && \
     npx prisma migrate deploy && \
+    npm run build && \
+    echo 'Running Prisma setup...' && \
     echo 'Restarting application $PM2_APP_NAME...' && \
     $PM2_RESTART_CMD"
 

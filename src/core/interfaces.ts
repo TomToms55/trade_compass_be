@@ -1,14 +1,19 @@
 import { EventEmitter } from 'events';
 import type { MarketInfo, TradeSuggestion, TokenMetricsTraderGrade, InfiniteGamesEvent } from './domainTypes';
 import type { TokenTradingSignal } from '@/infra/external/tokenMetrics'; // Correct: Import directly from source
+import type { EventDetails } from '@/infra/external/infiniteGames'; // Import PredictedEvent
 import type { Exchange, Market, Order } from 'ccxt'; // Import ccxt types
 import type { User, Trade, Prisma, PrismaClient } from '@prisma/client'; // Import Prisma types
 import type { Order as CcxtOrder } from 'ccxt'; // Import ccxt Order type for TradeData input
+import type { CommunityPredictionResponse } from '@/infra/external/infiniteGames'; // Import the new response type
+import type { PredictedFullEvent } from '@/modules/infinite_games/services/infiniteGames.service';
 
 // Moved from domainTypes.ts
 export interface IStorageService {
   getSuggestions(): Promise<TradeSuggestion[]>;
   saveSuggestions(suggestions: TradeSuggestion[]): Promise<void>;
+  saveInfiniteGamesData(data: PredictedFullEvent[]): Promise<void>;
+  getInfiniteGamesData(): Promise<PredictedFullEvent[]>;
 }
 
 export interface IBinanceService {
@@ -39,7 +44,9 @@ export interface ITokenMetricsClient {
 }
 
 export interface IInfiniteGamesClient {
-  getEventPredictions(): Promise<InfiniteGamesEvent[]>;
+  getEvents(limit?: number, offset?: number): Promise<InfiniteGamesEvent[]>;
+  getSingleEventDetails(eventId: string): Promise<EventDetails>;
+  getCommunityPrediction(eventId: string): Promise<CommunityPredictionResponse>;
 }
 
 export interface ISuggestionGenerator {
@@ -79,6 +86,7 @@ export interface ISuggestionService {
 // Based on UserSeedData and UserSettingsUpdateData from old database.ts
 export interface UserDataInput {
   id: string;
+  email?: string;           // Optional email for update/create via upsert
   apiKey?: string;          // Optional for update
   apiSecret?: string;         // Optional for update
   passwordHash?: string;      // Optional for update
@@ -88,6 +96,7 @@ export interface UserDataInput {
 // Define a more specific type for user creation data
 export interface UserCreateInput {
     id: string; // ID is required for creation (generated beforehand)
+    email: string; // Add email field
     apiKey: string;
     apiSecret: string;
     passwordHash: string;
@@ -113,6 +122,7 @@ export interface UserCredentials {
 export interface IUserRepository {
     // Renamed from getUserById
     findById(userId: string): Promise<User | null>; 
+    findByEmail(email: string): Promise<User | null>; // Add findByEmail method
     // Renamed from getUserApiCredentials
     findCredentialsById(userId: string): Promise<UserCredentials | null>; 
     
@@ -139,8 +149,8 @@ export interface TradeDataInput {
 export interface ITradeRepository {
     // Renamed from addTradeDb
     add(tradeData: TradeDataInput): Promise<Trade>; 
+    findByUserId(userId: string, limit?: number): Promise<Trade[]>;
     // findByOrderId(orderId: string): Promise<Trade | null>; // Example future method
-    // findByUserId(userId: string, limit?: number): Promise<Trade[]>; // Example future method
     // Add methods for finding open trades and updating closure
     findOpenTradesBySymbolAndSide(symbol: string, side: 'buy' | 'sell'): Promise<Trade[]>;
     updateTradeClosure(tradeId: number, closureData: { 
@@ -160,6 +170,7 @@ export interface ITradeRepository {
 
 // Interface for user registration data (needed by IAuthService)
 export interface UserRegistrationData {
+    email: string; // Add email
     apiKey: string;
     apiSecret: string;
     password: string;
@@ -167,8 +178,14 @@ export interface UserRegistrationData {
 
 // Add the new IAuthService interface
 export interface IAuthService {
-    registerUser(userData: UserRegistrationData): Promise<{ success: boolean, userId?: string }>;
-    verifyUserCredentials(userId: string, passwordAttempt: string): Promise<boolean>;
+    registerUser(userData: UserRegistrationData): Promise<{ success: boolean, userId?: string, message?: string }>;
+    // Replace verifyUserCredentials with a method accepting either identifier
+    // verifyUserCredentials(userId: string, passwordAttempt: string): Promise<boolean>; // Old method
+    verifyUserCredentialsWithIdentifier(
+      userId: string | undefined, // Can be undefined if email is provided
+      email: string | undefined, // Can be undefined if userId is provided
+      passwordAttempt: string
+    ): Promise<{ isValid: boolean, userId?: string }>; // Return userId on success
     // Removed issueAuthToken as JWT signing is handled in the route
     // Potentially add other auth-related methods later (e.g., refreshToken, verifyToken)
 }

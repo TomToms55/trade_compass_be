@@ -38,12 +38,17 @@ export interface TokenMetricsTraderGrade {
 }
 
 // Infinite Games API response types (placeholder for future implementation)
+// Updated to match GET /events endpoint structure
 export interface InfiniteGamesEvent {
   event_id: string;
+  market_type: string;
+  title: string;
   description: string;
-  related_symbols: string[];
-  probability: number;
-  impact: number;
+  cutoff: number; // Assuming timestamp
+  start_date: number; // Assuming timestamp
+  created_at: number; // Assuming timestamp
+  end_date: number; // Assuming timestamp
+  answer: any; // Type could be refined if known
 }
 
 // Interface for market precision details

@@ -13,14 +13,15 @@ export class AuthService implements IAuthService {
         @inject('IUserRepository') private userRepository: IUserRepository
     ) {}
 
-    async registerUser(userData: UserRegistrationData): Promise<{ success: boolean, userId?: string }> {
+    async registerUser(userData: UserRegistrationData): Promise<{ success: boolean, userId?: string, message?: string }> {
         try {
-            // 1. Check if user with the same API key already exists (optional but recommended)
-            // const existingUser = await this.userRepository.findByApiKey(userData.apiKey);
-            // if (existingUser) {
-            //     console.warn(`Registration attempt for existing API key: ${userData.apiKey}`);
-            //     return { success: false }; // Or throw a specific error
-            // }
+            // 1. Check if user with the same email already exists (More common check than API key)
+            const existingUserByEmail = await this.userRepository.findByEmail(userData.email);
+            if (existingUserByEmail) {
+                console.warn(`Registration attempt for existing email: ${userData.email}`);
+                // Consider throwing a specific "Conflict" error or returning a more informative failure
+                return { success: false, message: 'Email already registered.' }; // Add message
+            }
 
             // 2. Hash the password
             const passwordHash = await bcrypt.hash(userData.password, AuthService.SALT_ROUNDS);
@@ -28,48 +29,71 @@ export class AuthService implements IAuthService {
             // 3. Generate a unique ID for the new user
             const userId = uuidv4();
 
-            // 4. Prepare user data for creation
+            // 4. Prepare user data for creation (Ensure this matches UserCreateInput)
             const newUserInput = {
-                id: userId, // Use the generated UUID
+                id: userId,
+                email: userData.email, // Include email
                 apiKey: userData.apiKey,
-                apiSecret: userData.apiSecret, // Consider hashing or encrypting API secrets
+                apiSecret: userData.apiSecret, // Consider hashing/encrypting API secrets
                 passwordHash: passwordHash,
                 automaticTradingEnabled: false, // Default value
-                // Ensure all required fields by Prisma User model are present
             };
 
-            // 5. Create the user using the 'create' method (assuming it exists)
-            // Ensure IUserRepository interface and its implementation have a 'create' method
-            // accepting an object like newUserInput and returning the created User.
-            const newUser = await this.userRepository.create(newUserInput); 
+            // 5. Create the user using the repository's 'create' method
+            const newUser = await this.userRepository.create(newUserInput);
 
             // 6. Return success with the new user ID
             return { success: true, userId: newUser.id };
         } catch (error) {
             console.error("Error during user registration:", error);
-            // Log the error properly (e.g., using fastify.log)
-            // Consider throwing specific errors for different failure types
-            return { success: false };
+            // Improve error handling: check for specific repository errors (like constraint violations)
+            // Log the error properly (e.g., using injected logger)
+            // Return a generic failure or throw an appropriate HTTP error
+            let message = 'Registration failed due to an unexpected error.';
+            if (error instanceof Error && error.message.includes('Email already exists')) {
+                 message = 'Email already registered.'; // More specific based on repo error
+            }
+            return { success: false, message: message }; // Include error message
         }
     }
 
-    async verifyUserCredentials(userId: string, passwordAttempt: string): Promise<boolean> {
+    // Renamed and updated method
+    async verifyUserCredentialsWithIdentifier(
+        userId: string | undefined,
+        email: string | undefined,
+        passwordAttempt: string
+    ): Promise<{ isValid: boolean, userId?: string }> { // Return userId on success
         try {
-            // Retrieve the user, which should include the password hash
-            const user = await this.userRepository.findById(userId);
+            let user: User | null = null;
 
-            if (!user || !user.passwordHash) {
-                // User not found or has no password hash set
-                return false;
+            // 1. Find user by email if provided, otherwise by userId
+            if (email) {
+                user = await this.userRepository.findByEmail(email);
+            } else if (userId) {
+                user = await this.userRepository.findById(userId);
+            } else {
+                // Should not happen if route validation works, but handle defensively
+                console.warn('verifyUserCredentialsWithIdentifier called without userId or email.');
+                return { isValid: false };
             }
 
-            // Compare the provided password with the stored hash
+            // 2. Check if user exists and has a password hash
+            if (!user || !user.passwordHash) {
+                return { isValid: false };
+            }
+
+            // 3. Compare the provided password with the stored hash
             const isMatch = await bcrypt.compare(passwordAttempt, user.passwordHash);
-            return isMatch;
+
+            // 4. Return validation result and userId if match
+            return {
+                isValid: isMatch,
+                userId: isMatch ? user.id : undefined // Only return userId if valid
+            };
         } catch (error) {
             console.error("Error during credential verification:", error);
             // TODO: Implement proper logging and error handling
-            return false; // Fail verification on error
+            return { isValid: false }; // Fail verification on error
         }
     }
 } 

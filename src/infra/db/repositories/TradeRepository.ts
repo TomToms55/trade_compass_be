@@ -68,7 +68,28 @@ export class TradeRepository implements ITradeRepository {
 
     // Potential future methods:
     // async findByOrderId(orderId: string): Promise<Trade | null> { ... }
-    // async findByUserId(userId: string, limit: number = 50): Promise<Trade[]> { ... }
+    /**
+     * Finds trades for a specific user, optionally limited.
+     * Orders by timestamp descending (most recent first).
+     */
+    async findByUserId(userId: string, limit: number = 50): Promise<Trade[]> {
+        try {
+            const trades = await prisma.trade.findMany({
+                where: {
+                    userId: userId,
+                },
+                orderBy: {
+                    timestamp: 'desc', // Order by timestamp, newest first
+                },
+                take: limit, // Apply the limit
+            });
+            console.log(`Found ${trades.length} trades for user ${userId} (limit ${limit}).`);
+            return trades;
+        } catch (error) {
+            console.error(`Error finding trades for user ${userId}:`, error);
+            throw error; // Re-throw the error for handling upstream
+        }
+    }
     
     /**
      * Finds open trades for a specific symbol and original side.

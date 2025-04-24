@@ -14,6 +14,9 @@ import { TradeRepository } from '@/infra/db/repositories/TradeRepository';
 import { UserService } from '@/modules/services/userService';
 import { AuthService } from "@/modules/auth/services/auth.service"; // Import AuthService
 import { TradeClosureService } from "@/modules/trading/services/trade-closure.service"; // Import TradeClosureService
+import { IInfiniteGamesService } from '@/core/interfaces/IInfiniteGamesService'; 
+import { InfiniteGamesService } from '@/modules/infinite_games/services/infiniteGames.service';
+import { SuggestionService } from '@/modules/suggestions/services/suggestion.service'; // Import SuggestionService
 
 // Import interfaces for type safety
 import type { 
@@ -43,7 +46,7 @@ export interface AppServices {
     tradeRepository: ITradeRepository;
     userService: IUserService;
     tradeClosureService: ITradeClosureService; // Add TradeClosureService
-    // suggestionService: ISuggestionService; // Removed
+    infiniteGamesService: IInfiniteGamesService; // Add the service interface back
 }
 
 /**
@@ -61,6 +64,14 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
     // Register TradeClosureService
     container.register<ITradeClosureService>("ITradeClosureService", { useClass: TradeClosureService });
 
+    // Register InfiniteGamesService
+    container.register<IInfiniteGamesService>("IInfiniteGamesService", { useClass: InfiniteGamesService });
+    console.log("InfiniteGamesService registered.");
+
+    // Register SuggestionService
+    container.register<SuggestionService>(SuggestionService, { useClass: SuggestionService });
+    console.log("SuggestionService registered.");
+
     // Register Repositories
     container.register("IUserRepository", UserRepository);
     container.register("ITradeRepository", TradeRepository);
@@ -70,7 +81,8 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
 
     // Register Singleton Binance Service
     const binanceService: IBinanceService = binanceServiceInstance;
-    await binanceService.loadMarkets(); // Perform async setup before registering instance
+    //PUT THIS BACK IN!
+    //await binanceService.loadMarkets(); // Perform async setup before registering instance
     container.registerInstance<IBinanceService>("IBinanceService", binanceService);
     console.log("Binance Service registered & markets loaded.");
 
@@ -137,5 +149,6 @@ export async function bootstrapApp(): Promise<AppServices> { // Return type migh
         tradeRepository: container.resolve("ITradeRepository"),
         userService: container.resolve("IUserService"),
         tradeClosureService: container.resolve("ITradeClosureService"), // Resolve TradeClosureService
+        infiniteGamesService: container.resolve("IInfiniteGamesService") // Resolve and return the new service again
     };
 } 

@@ -2,13 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SuggestionService } from './suggestion.service';
 import type { ISuggestionGenerator, IStorageService } from '@/core/interfaces';
 import type { FastifyBaseLogger } from 'fastify';
-import type { TradeSuggestion } from '@/core/domainTypes';
+import type { InfiniteGamesEvent, TradeSuggestion } from '@/core/domainTypes';
+import { EventDetails } from '@/infra/external/infiniteGames';
+import { PredictedFullEvent } from '@/modules/infinite_games/services/infiniteGames.service';
 
 // Mock individual functions first (without generics)
 const mockGenerateSuggestions = vi.fn();
 const mockSaveSuggestions = vi.fn();
+const mockSaveInfiniteGamesData = vi.fn();
 const mockGetSuggestions = vi.fn();
-
+const mockGetInfiniteGamesData = vi.fn();
 // Assign functions to mock objects conforming to interfaces
 const mockSuggestionGenerator: ISuggestionGenerator = {
     generateSuggestions: mockGenerateSuggestions,
@@ -16,6 +19,8 @@ const mockSuggestionGenerator: ISuggestionGenerator = {
 const mockStorageService: IStorageService = {
     getSuggestions: mockGetSuggestions,
     saveSuggestions: mockSaveSuggestions,
+    saveInfiniteGamesData: mockSaveInfiniteGamesData,
+    getInfiniteGamesData: mockGetInfiniteGamesData
 };
 
 // Mock Fastify logger

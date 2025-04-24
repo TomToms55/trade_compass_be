@@ -99,7 +99,7 @@ describe('TradeClosureService', () => {
             closeOrderId: null, closeTimestamp: null, closePrice: null, closeCost: null, profit: null, durationMs: null,
         } as any; // Cast to any
         const mockUser: User = {
-            id: 'user-123', apiKey: 'key', apiSecret: 'secret', passwordHash: 'hash',
+            id: 'user-123', email: 'test1@example.com', apiKey: 'key', apiSecret: 'secret', passwordHash: 'hash',
             automaticTradingEnabled: true
         };
         const mockClosingOrder: CcxtOrder = {
@@ -114,7 +114,7 @@ describe('TradeClosureService', () => {
             trades: [],
             reduceOnly: false,
             postOnly: false,
-        };
+        } as any; // Cast to any
 
         // Arrange
         mockTradeRepository.findOpenTradesBySymbolAndSide?.mockResolvedValue([tradeToClose]);
@@ -167,7 +167,7 @@ describe('TradeClosureService', () => {
             closeOrderId: null, closeTimestamp: null, closePrice: null, closeCost: null, profit: null, durationMs: null,
         } as any; // Cast to any
          const mockUser: User = {
-            id: 'user-456', apiKey: 'key2', apiSecret: 'secret2', passwordHash: 'hash2',
+            id: 'user-456', email: 'test2@example.com', apiKey: 'key2', apiSecret: 'secret2', passwordHash: 'hash2',
             automaticTradingEnabled: true
         };
         const mockClosingOrder: CcxtOrder = {
@@ -182,7 +182,7 @@ describe('TradeClosureService', () => {
              trades: [],
              reduceOnly: false, // Although we requested reduceOnly, the returned order might not reflect it directly
              postOnly: false,
-        };
+        } as any; // Cast to any
 
         // Arrange
         mockTradeRepository.findOpenTradesBySymbolAndSide?.mockResolvedValue([tradeToClose]);
@@ -247,7 +247,7 @@ describe('TradeClosureService', () => {
              timestamp: new Date(), orderId: 'o1', type:'t', price:1, amount:1, cost:1, remaining:0, status:'s', feeCost:0, feeCurrency:'', rawOrder:'', closeOrderId:null, closeTimestamp:null, closePrice:null, closeCost:null, profit:null, durationMs:null
         } as any; // Cast to any
         // Use empty strings instead of null to satisfy non-nullable string type
-        const mockUser: User = { id: 'user-abc', apiKey: '', apiSecret: '', passwordHash: 'h', automaticTradingEnabled: false }; 
+        const mockUser: User = { id: 'user-abc', email: 'test3@example.com', apiKey: '', apiSecret: '', passwordHash: 'h', automaticTradingEnabled: false }; 
 
         // Arrange
         mockTradeRepository.findOpenTradesBySymbolAndSide?.mockResolvedValue([tradeToClose]);
@@ -271,7 +271,7 @@ describe('TradeClosureService', () => {
             tradeId: 5, userId: 'user-def', symbol: symbol, side: 'sell', filled: 0, marketType: 'spot', tcState: 'OPEN',
              timestamp: new Date(), orderId: 'o1', type:'t', price:1, amount:1, cost:1, remaining:0, status:'s', feeCost:0, feeCurrency:'', rawOrder:'', closeOrderId:null, closeTimestamp:null, closePrice:null, closeCost:null, profit:null, durationMs:null
         } as any; // Cast to any
-        const mockUser: User = { id: 'user-def', apiKey: 'k', apiSecret: 's', passwordHash: 'h', automaticTradingEnabled: true };
+        const mockUser: User = { id: 'user-def', email: 'test4@example.com', apiKey: 'k', apiSecret: 's', passwordHash: 'h', automaticTradingEnabled: true };
 
         // Arrange
         mockTradeRepository.findOpenTradesBySymbolAndSide?.mockResolvedValue([tradeToClose]);
@@ -295,7 +295,7 @@ describe('TradeClosureService', () => {
             tradeId: 6, userId: 'user-ghi', symbol: symbol, side: 'buy', filled: 10, cost: 500, marketType: 'spot', tcState: 'OPEN',
              timestamp: new Date(), orderId: 'o1', type:'t', price:1, amount:1, remaining:0, status:'s', feeCost:0, feeCurrency:'', rawOrder:'', closeOrderId:null, closeTimestamp:null, closePrice:null, closeCost:null, profit:null, durationMs:null
         } as any; // Cast to any
-        const mockUser: User = { id: 'user-ghi', apiKey: 'k', apiSecret: 's', passwordHash: 'h', automaticTradingEnabled: true };
+        const mockUser: User = { id: 'user-ghi', email: 'test5@example.com', apiKey: 'k', apiSecret: 's', passwordHash: 'h', automaticTradingEnabled: true };
         const orderError = new ccxt.InsufficientFunds('Not enough LTC to sell');
 
         // Arrange

@@ -17,12 +17,15 @@ import type { TokenTradingSignal } from "@/infra/external/tokenMetrics";
 import publicRoutes from '@/modules/routes/publicRoutes';
 import authenticatedRoutes from '@/modules/routes/authenticatedRoutes';
 import authRoutes from '@/modules/auth/routes/auth.routes'; // Import the new auth routes
+import { polymarketRoutes } from '@/modules/polymarket'; // Import Polymarket routes
 
 // Import bootstrap function and AppServices type
 import { bootstrapApp, AppServices } from './bootstrap';
 
 // Import the new service class
 import { SuggestionService } from '@/modules/suggestions/services/suggestion.service';
+// Import the InfiniteGamesService interface
+import { IInfiniteGamesService } from '@/core/interfaces/IInfiniteGamesService';
 
 // Import needed types and ccxt
 import type { Trade } from '@prisma/client';
@@ -92,7 +95,8 @@ export async function build(): Promise<FastifyInstance> {
           { name: 'public', description: 'Public Endpoints (No Auth Required)' },
           { name: 'auth', description: 'Authentication Endpoints' },
           { name: 'user', description: 'User-specific Endpoints (Auth Required)' },
-          { name: 'trading', description: 'Trading Endpoints (Auth Required)' },
+          { name: 'crypto', description: 'Crypto-related Endpoints' },
+          { name: 'polymarket', description: 'Polymarket-related Endpoints' },
         ],
         // Define security definitions for JWT
         securityDefinitions: {
@@ -133,27 +137,31 @@ export async function build(): Promise<FastifyInstance> {
     fastify.decorate('userService', services.userService);
     fastify.decorate('tradeClosureService', services.tradeClosureService); // Decorate the new service
     // Optionally decorate others if directly needed by plugins/hooks added here
-    // fastify.decorate('suggestionGenerator', services.suggestionGenerator);
-    // fastify.decorate('infiniteGamesClient', services.infiniteGamesClient);
+    fastify.decorate('suggestionGenerator', services.suggestionGenerator);
+
+    fastify.decorate('infiniteGamesClient', services.infiniteGamesClient); // Already has IG Client
+    fastify.decorate('infiniteGamesService', services.infiniteGamesService); // Decorate with the new service
     
     // --- Instantiate Services Requiring Fastify Instance (like logger) ---
-    const suggestionService = new SuggestionService(
-        services.suggestionGenerator, 
-        services.storageService, 
-        fastify.log // Pass the logger
-    );
+    const suggestionService = container.resolve(SuggestionService); // Resolve SuggestionService if needed here
 
     // --- Register Route Plugins --- 
     // Routes rely on decorated services or resolve from container
     fastify.register(publicRoutes);
     fastify.register(authenticatedRoutes);
     fastify.register(authRoutes);
+    fastify.register(polymarketRoutes); // Register Polymarket routes with prefix
 
     // --- Start Periodic Tasks & Event Listeners --- 
     const SUGGESTION_UPDATE_INTERVAL_MS = 24 * 60 * 60 * 1000; 
-    
-    // Start suggestion updates using the new service
+    const INFINITE_GAMES_UPDATE_INTERVAL_MS = 1 * 60 * 60 * 1000; // 1 hour
+
+    // Start suggestion updates using the resolved service
+    // Ensure SuggestionService is correctly resolved/instantiated if needed here or via bootstrap
     await suggestionService.startPeriodicUpdates(SUGGESTION_UPDATE_INTERVAL_MS, true); // Run immediately
+
+    // Start Infinite Games updates
+    await services.infiniteGamesService.startPeriodicUpdates(INFINITE_GAMES_UPDATE_INTERVAL_MS, true);
 
     await services.signalGenerator.start();
 
@@ -182,6 +190,8 @@ export async function build(): Promise<FastifyInstance> {
     fastify.addHook('onClose', async (instance) => {
         // Stop suggestion service updates
         suggestionService.stopPeriodicUpdates();
+        // Stop Infinite Games service updates
+        services.infiniteGamesService.stopPeriodicUpdates();
         
         // Stop signal generator
         if (services.signalGenerator) {
